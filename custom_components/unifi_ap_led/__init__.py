@@ -1,8 +1,11 @@
 import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from .const import DOMAIN, CONF_HOST, CONF_USERNAME, CONF_PASSWORD, CONF_SITE, CONF_VERIFY_SSL
 from .client import UnifiAPClient
+from .const import (
+    DOMAIN, CONF_HOST, CONF_USERNAME, CONF_PASSWORD, 
+    CONF_SITE, CONF_VERIFY_SSL, CONF_PORT, DEFAULT_PORT, DEFAULT_SITE
+)
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["switch", "button"]
@@ -12,9 +15,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     data = entry.data
     client = UnifiAPClient(
         host=data[CONF_HOST],
+        port=data.get(CONF_PORT, DEFAULT_PORT),
         username=data[CONF_USERNAME],
         password=data[CONF_PASSWORD],
-        site=data.get(CONF_SITE, "default"),
+        site=data.get(CONF_SITE, DEFAULT_SITE),
         verify_ssl=data.get(CONF_VERIFY_SSL, True)
     )
     
@@ -24,7 +28,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             _LOGGER.error("Failed to login to UniFi controller")
             return False
     except Exception as e:
-        _LOGGER.error("Error during setup: %s", e)
+        _LOGGER.error("Error during setup: %s", e, exc_info=True)
         return False
     
     hass.data.setdefault(DOMAIN, {})
