@@ -1,9 +1,10 @@
+import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD
+from .const import DOMAIN, CONF_HOST, CONF_USERNAME, CONF_PASSWORD, CONF_SITE, CONF_VERIFY_SSL
 from .client import UnifiAPClient
-from .const import DOMAIN, CONF_SITE, CONF_VERIFY_SSL
 
+_LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["switch", "button"]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
