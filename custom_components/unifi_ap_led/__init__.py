@@ -1,7 +1,8 @@
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD
 from .client import UnifiAPClient
-from .const import DOMAIN, CONF_HOST, CONF_USERNAME, CONF_PASSWORD, CONF_SITE, CONF_VERIFY_SSL
+from .const import DOMAIN, CONF_SITE, CONF_VERIFY_SSL
 
 PLATFORMS = ["switch", "button"]
 
