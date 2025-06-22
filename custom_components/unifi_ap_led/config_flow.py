@@ -1,3 +1,4 @@
+import asyncio
 import voluptuous as vol
 import logging
 from homeassistant import config_entries
