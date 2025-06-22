@@ -3,9 +3,9 @@
   "domain": "unifi_ap_led",
   "name": "UniFi AP LED Control",
   "version": "1.0.0",
-  "documentation": "https://github.com/yourname/hass-unifi-ap-led",
+  "documentation": "https://github.com/omgitslurch/hass-unifi-ap-led",
   "requirements": ["aiohttp"],
-  "codeowners": ["@yourgithub"],
+  "codeowners": ["@omgitslurch"],
   "config_flow": true,
   "iot_class": "local_polling"
 }
