@@ -4,7 +4,7 @@ from homeassistant.core import HomeAssistant
 from .client import UnifiAPClient
 from .const import (
     DOMAIN, CONF_HOST, CONF_USERNAME, CONF_PASSWORD, 
-    CONF_SITE, CONF_VERIFY_SSL, CONF_PORT, DEFAULT_PORT, DEFAULT_SITE
+    CONF_SITE_ID, CONF_PORT, DEFAULT_PORT, CONF_VERIFY_SSL
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -18,7 +18,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         port=data.get(CONF_PORT, DEFAULT_PORT),
         username=data[CONF_USERNAME],
         password=data[CONF_PASSWORD],
-        site=data.get(CONF_SITE, DEFAULT_SITE),
         verify_ssl=data.get(CONF_VERIFY_SSL, True)
     )
     
@@ -32,7 +31,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         return False
     
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = client
+    hass.data[DOMAIN][entry.entry_id] = {
+        "client": client,
+        "site_id": data[CONF_SITE_ID]
+    }
     
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -42,6 +44,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        client = hass.data[DOMAIN].pop(entry.entry_id)
+        entry_data = hass.data[DOMAIN].pop(entry.entry_id)
+        client = entry_data["client"]
         await client.close()
     return unload_ok
