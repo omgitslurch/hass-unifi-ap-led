@@ -17,7 +17,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     )
     
     # Verify connection
-    if not await client.login():
+    try:
+        if not await client.login():
+            _LOGGER.error("Failed to login to UniFi controller")
+            return False
+    except Exception as e:
+        _LOGGER.error("Error during setup: %s", e)
         return False
     
     hass.data.setdefault(DOMAIN, {})
