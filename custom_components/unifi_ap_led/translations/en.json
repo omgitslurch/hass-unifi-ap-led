@@ -1,0 +1,33 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "UniFi Controller Setup",
+        "data": {
+          "host": "Controller Host/IP",
+          "username": "Username",
+          "password": "Password",
+          "site": "Site Name",
+          "verify_ssl": "Verify SSL"
+        }
+      },
+      "select_ap": {
+        "title": "Select Access Point",
+        "data": {
+          "ap_mac": "Access Point"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to UniFi controller",
+      "invalid_auth": "Invalid authentication",
+      "no_aps": "No access points found",
+      "no_new_aps": "No additional access points available",
+      "unknown": "Unknown error occurred"
+    },
+    "abort": {
+      "no_aps": "No access points found on this controller",
+      "no_new_aps": "No additional access points available"
+    }
+  }
+}

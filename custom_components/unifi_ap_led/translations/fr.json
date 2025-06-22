@@ -1,0 +1,45 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configuration du contrôleur UniFi",
+        "data": {
+          "host": "Hôte/IP du contrôleur",
+          "username": "Nom d'utilisateur",
+          "password": "Mot de passe",
+          "site": "Nom du site",
+          "verify_ssl": "Vérifier SSL"
+        }
+      },
+      "select_ap": {
+        "title": "Sélectionner un point d'accès",
+        "data": {
+          "ap_mac": "Point d'accès"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Échec de la connexion au contrôleur UniFi",
+      "invalid_auth": "Authentification invalide",
+      "no_aps": "Aucun point d'accès trouvé",
+      "no_new_aps": "Aucun point d'accès supplémentaire disponible",
+      "unknown": "Une erreur inconnue est survenue"
+    },
+    "abort": {
+      "no_aps": "Aucun point d'accès trouvé sur ce contrôleur",
+      "no_new_aps": "Aucun point d'accès supplémentaire disponible"
+    }
+  },
+  "entity": {
+    "switch": {
+      "led_state": {
+        "name": "État de la LED"
+      }
+    },
+    "button": {
+      "flash_led": {
+        "name": "Faire clignoter la LED"
+      }
+    }
+  }
+}

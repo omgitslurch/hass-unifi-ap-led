@@ -1,0 +1,45 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "UniFi Controller Einrichtung",
+        "data": {
+          "host": "Controller Host/IP",
+          "username": "Benutzername",
+          "password": "Passwort",
+          "site": "Standortname",
+          "verify_ssl": "SSL überprüfen"
+        }
+      },
+      "select_ap": {
+        "title": "Zugangspunkt auswählen",
+        "data": {
+          "ap_mac": "Zugangspunkt"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zum UniFi Controller fehlgeschlagen",
+      "invalid_auth": "Ungültige Authentifizierung",
+      "no_aps": "Keine Zugangspunkte gefunden",
+      "no_new_aps": "Keine weiteren Zugangspunkte verfügbar",
+      "unknown": "Ein unbekannter Fehler ist aufgetreten"
+    },
+    "abort": {
+      "no_aps": "Keine Zugangspunkte auf diesem Controller gefunden",
+      "no_new_aps": "Keine weiteren Zugangspunkte verfügbar"
+    }
+  },
+  "entity": {
+    "switch": {
+      "led_state": {
+        "name": "LED-Status"
+      }
+    },
+    "button": {
+      "flash_led": {
+        "name": "LED blinken lassen"
+      }
+    }
+  }
+}
