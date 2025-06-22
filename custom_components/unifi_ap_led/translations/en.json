@@ -7,9 +7,11 @@
           "host": "Controller Host/IP",
           "username": "Username",
           "password": "Password",
-          "site": "Site Name",
+          "port": "Port (default: 8443)",
+          "site": "Site Name (default: default)",
           "verify_ssl": "Verify SSL"
-        }
+        },
+        "description": "Note: Site name is usually 'default' unless you have multiple sites."
       },
       "select_ap": {
         "title": "Select Access Point",
