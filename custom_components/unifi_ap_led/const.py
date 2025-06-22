@@ -4,6 +4,7 @@ DOMAIN = "unifi_ap_led"
 CONF_SITE = "site"
 CONF_AP_MAC = "ap_mac"
 CONF_VERIFY_SSL = "verify_ssl"
+CONF_PORT = "port"
 
 ERRORS = {
     "cannot_connect": "cannot_connect",
@@ -12,3 +13,6 @@ ERRORS = {
     "no_new_aps": "no_new_aps",
     "unknown": "unknown"
 }
+
+DEFAULT_PORT = 8443
+DEFAULT_SITE = "default"
