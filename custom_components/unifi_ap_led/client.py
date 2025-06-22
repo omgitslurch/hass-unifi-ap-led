@@ -1,13 +1,14 @@
 import aiohttp
 import logging
-import async_timeout
+import asyncio
 from typing import Dict, List, Optional
 
 _LOGGER = logging.getLogger(__name__)
 
 class UnifiAPClient:
-    def __init__(self, host: str, username: str, password: str, site: str, verify_ssl: bool):
+    def __init__(self, host: str, username: str, password: str, site: str, port: int, verify_ssl: bool):
         self.host = host
+        self.port = port
         self.username = username
         self.password = password
         self.site = site
@@ -18,9 +19,9 @@ class UnifiAPClient:
     async def login(self) -> bool:
         """Authenticate with UniFi controller."""
         try:
-            url = f"https://{self.host}/api/login"
+            url = f"https://{self.host}:{self.port}/api/login"
             payload = {"username": self.username, "password": self.password}
-            async with async_timeout.timeout(10):
+            async with asyncio.timeout(10):
                 async with self.session.post(
                     url, json=payload, ssl=self.verify_ssl
                 ) as resp:
@@ -28,6 +29,12 @@ class UnifiAPClient:
                         self.cookies = resp.cookies
                         return True
                     _LOGGER.error("Login failed with status: %s", resp.status)
+                    # Try to get error details
+                    try:
+                        error_data = await resp.json()
+                        _LOGGER.debug("Login error details: %s", error_data)
+                    except:
+                        pass
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             _LOGGER.error("Connection error during login: %s", err)
         return False
@@ -38,8 +45,9 @@ class UnifiAPClient:
             return []
 
         try:
-            url = f"https://{self.host}/api/s/{self.site}/stat/device"
-            async with async_timeout.timeout(10):
+            url = f"https://{self.host}:{self.port}/api/s/{self.site}/stat/device"
+            _LOGGER.debug("Fetching devices from: %s", url)
+            async with asyncio.timeout(10):
                 async with self.session.get(
                     url, cookies=self.cookies, ssl=self.verify_ssl
                 ) as resp:
@@ -50,6 +58,13 @@ class UnifiAPClient:
                         _LOGGER.debug("Session expired, re-authenticating")
                         self.cookies = None
                         return await self.get_devices()
+                    # Log detailed error for other statuses
+                    _LOGGER.error("Failed to get devices, status: %s", resp.status)
+                    try:
+                        error_data = await resp.text()
+                        _LOGGER.debug("Error response: %s", error_data)
+                    except:
+                        pass
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             _LOGGER.error("Connection error fetching devices: %s", err)
         return []
@@ -60,9 +75,9 @@ class UnifiAPClient:
             return False
 
         try:
-            url = f"https://{self.host}/api/s/{self.site}/cmd/devmgr"
+            url = f"https://{self.host}:{self.port}/api/s/{self.site}/cmd/devmgr"
             payload = {"mac": mac.lower(), "cmd": "set-locate", "locate": True}
-            async with async_timeout.timeout(10):
+            async with asyncio.timeout(10):
                 async with self.session.post(
                     url, json=payload, cookies=self.cookies, ssl=self.verify_ssl
                 ) as resp:
@@ -77,9 +92,9 @@ class UnifiAPClient:
             return False
 
         try:
-            url = f"https://{self.host}/api/s/{self.site}/rest/device/{mac.lower()}"
+            url = f"https://{self.host}:{self.port}/api/s/{self.site}/rest/device/{mac.lower()}"
             payload = {"led_override": "on" if state else "off"}
-            async with async_timeout.timeout(10):
+            async with asyncio.timeout(10):
                 async with self.session.put(
                     url, json=payload, cookies=self.cookies, ssl=self.verify_ssl
                 ) as resp:
