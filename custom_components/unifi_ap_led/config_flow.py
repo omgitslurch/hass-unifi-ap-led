@@ -1,10 +1,12 @@
-import asyncio
 import voluptuous as vol
 import logging
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD
-from .const import DOMAIN, CONF_SITE, CONF_AP_MAC, CONF_VERIFY_SSL, ERRORS
+from .const import (
+    DOMAIN, CONF_SITE, CONF_AP_MAC, CONF_VERIFY_SSL, CONF_PORT,
+    DEFAULT_PORT, DEFAULT_SITE, ERRORS
+)
 from .client import UnifiAPClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -26,9 +28,10 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Verify connection
             self.client = UnifiAPClient(
                 host=user_input[CONF_HOST],
+                port=user_input.get(CONF_PORT, DEFAULT_PORT),
                 username=user_input[CONF_USERNAME],
                 password=user_input[CONF_PASSWORD],
-                site=user_input.get(CONF_SITE, "default"),
+                site=user_input.get(CONF_SITE, DEFAULT_SITE),
                 verify_ssl=user_input.get(CONF_VERIFY_SSL, True)
             )
             
@@ -43,7 +46,7 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 else:
                     errors["base"] = "cannot_connect"
             except Exception as e:
-                _LOGGER.error("Connection error: %s", e)
+                _LOGGER.error("Connection error: %s", e, exc_info=True)
                 errors["base"] = "unknown"
             finally:
                 if self.client:
@@ -56,7 +59,8 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_HOST): str,
                 vol.Required(CONF_USERNAME): str,
                 vol.Required(CONF_PASSWORD): str,
-                vol.Optional(CONF_SITE, default="default"): str,
+                vol.Optional(CONF_PORT, default=DEFAULT_PORT): int,
+                vol.Optional(CONF_SITE, default=DEFAULT_SITE): str,
                 vol.Optional(CONF_VERIFY_SSL, default=True): bool
             }),
             errors=errors
@@ -79,11 +83,13 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         
         # Create list of APs for selection
-        ap_options = [
-            (device["mac"], f"{device.get('name', 'Unnamed AP')} ({device['mac']})")
-            for device in self.ap_devices
-            if device.get("type") == "uap"  # Filter only access points
-        ]
+        ap_options = []
+        for device in self.ap_devices:
+            if device.get("type") in ["uap", "udm", "udr"]:  # Include various AP types
+                name = device.get("name", "Unnamed AP")
+                mac = device.get("mac")
+                if mac:
+                    ap_options.append((mac, f"{name} ({mac})"))
         
         if not ap_options:
             return self.async_abort(reason="no_aps")
@@ -115,7 +121,7 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         try:
             self.ap_devices = await client.get_devices()
         except Exception as e:
-            _LOGGER.error("Error fetching devices: %s", e)
+            _LOGGER.error("Error fetching devices: %s", e, exc_info=True)
             return self.async_abort(reason="cannot_connect")
         
         # Filter out already configured APs
@@ -125,11 +131,13 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
             if entry.data[CONF_HOST] == self.config_entry.data[CONF_HOST]
         }
         
-        ap_options = [
-            (device["mac"], f"{device.get('name', 'Unnamed AP')} ({device['mac']})")
-            for device in self.ap_devices
-            if device.get("type") == "uap" and device["mac"] not in configured_aps
-        ]
+        ap_options = []
+        for device in self.ap_devices:
+            if device.get("type") in ["uap", "udm", "udr"]:  # Include various AP types
+                mac = device.get("mac")
+                if mac and mac not in configured_aps:
+                    name = device.get("name", "Unnamed AP")
+                    ap_options.append((mac, f"{name} ({mac})"))
         
         if not ap_options:
             return self.async_abort(reason="no_new_aps")
@@ -152,7 +160,7 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         ap_options = [
             (d["mac"], f"{d.get('name', 'Unnamed AP')} ({d['mac']})")
             for d in self.ap_devices
-            if d.get("type") == "uap"
+            if d.get("type") in ["uap", "udm", "udr"]  # Include various AP types
         ]
         
         return self.async_show_form(
