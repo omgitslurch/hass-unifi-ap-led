@@ -3,7 +3,7 @@ from homeassistant.components.button import ButtonEntity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from .const import DOMAIN, CONF_AP_MAC
+from .const import DOMAIN, CONF_AP_MAC, CONF_SITE_NAME
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -13,10 +13,13 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback
 ):
     """Set up the flash button."""
-    client = hass.data[DOMAIN][entry.entry_id]
+    entry_data = hass.data[DOMAIN][entry.entry_id]
+    client = entry_data["client"]
+    site_id = entry_data["site_id"]
     ap_mac = entry.data[CONF_AP_MAC]
+    site_name = entry.data.get(CONF_SITE_NAME, "UniFi Site")
     
-    async_add_entities([UnifiLedFlashButton(client, ap_mac)])
+    async_add_entities([UnifiLedFlashButton(client, site_id, ap_mac, site_name)])
 
 class UnifiLedFlashButton(ButtonEntity):
     """Representation of a UniFi AP LED flash button."""
@@ -25,14 +28,17 @@ class UnifiLedFlashButton(ButtonEntity):
     _attr_name = "Flash LED"
     _attr_device_class = "restart"
     
-    def __init__(self, client, ap_mac):
+    def __init__(self, client, site_id, ap_mac, site_name):
         self._client = client
+        self._site_id = site_id
         self._ap_mac = ap_mac
-        self._attr_unique_id = f"unifi_flash_{ap_mac}"
+        self._site_name = site_name
+        self._attr_unique_id = f"unifi_flash_{site_id}_{ap_mac}"
 
     async def async_press(self) -> None:
         """Flash the AP LED."""
-        await self._client.flash_led(self._ap_mac)
+        # Note: You'll need to update the flash_led method in client.py to accept site_id
+        await self._client.flash_led(self._site_id, self._ap_mac)
 
     @property
     def device_info(self):
@@ -41,5 +47,5 @@ class UnifiLedFlashButton(ButtonEntity):
             "identifiers": {(DOMAIN, self._ap_mac)},
             "name": f"UniFi AP {self._ap_mac}",
             "manufacturer": "Ubiquiti",
-            "via_device": (DOMAIN, self._client.host)
+            "via_device": (DOMAIN, f"{self._client.host}-{self._site_name}")
         }
