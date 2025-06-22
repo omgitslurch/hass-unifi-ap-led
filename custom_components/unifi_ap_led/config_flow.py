@@ -1,9 +1,12 @@
 import voluptuous as vol
+import logging
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD
-from .const import DOMAIN, CONF_SITE, CONF_AP_MAC, CONF_VERIFY_SSL
+from .const import DOMAIN, CONF_SITE, CONF_AP_MAC, CONF_VERIFY_SSL, ERRORS
 from .client import UnifiAPClient
+
+_LOGGER = logging.getLogger(__name__)
 
 class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
@@ -13,13 +16,14 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         super().__init__()
         self.controller_data = {}
         self.ap_devices = []
+        self.client = None
 
     async def async_step_user(self, user_input=None):
         """Initial controller setup step."""
         errors = {}
         if user_input is not None:
             # Verify connection
-            client = UnifiAPClient(
+            self.client = UnifiAPClient(
                 host=user_input[CONF_HOST],
                 username=user_input[CONF_USERNAME],
                 password=user_input[CONF_PASSWORD],
@@ -27,17 +31,24 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 verify_ssl=user_input.get(CONF_VERIFY_SSL, True)
             )
             
-            if await client.login():
-                self.controller_data = user_input
-                self.ap_devices = await client.get_devices()
-                await client.close()
-                
-                if self.ap_devices:
-                    return await self.async_step_select_ap()
-                errors["base"] = "no_aps"
-            else:
-                errors["base"] = "cannot_connect"
+            try:
+                if await self.client.login():
+                    self.ap_devices = await self.client.get_devices()
+                    self.controller_data = user_input
+                    
+                    if self.ap_devices:
+                        return await self.async_step_select_ap()
+                    errors["base"] = "no_aps"
+                else:
+                    errors["base"] = "cannot_connect"
+            except Exception as e:
+                _LOGGER.error("Connection error: %s", e)
+                errors["base"] = "unknown"
+            finally:
+                if self.client:
+                    await self.client.close()
         
+        # Show form with current inputs
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
@@ -56,8 +67,13 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             # Create entry with both controller and AP data
             data = {**self.controller_data, CONF_AP_MAC: user_input[CONF_AP_MAC]}
+            
+            # Set unique ID to prevent duplicate entries
+            await self.async_set_unique_id(user_input[CONF_AP_MAC])
+            self._abort_if_unique_id_configured()
+            
             return self.async_create_entry(
-                title=f"{user_input[CONF_AP_MAC]} LED Control",
+                title=f"UniFi AP {user_input[CONF_AP_MAC]}",
                 data=data
             )
         
@@ -95,7 +111,11 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         """Manage additional APs."""
         # Get existing client from config entry
         client = self.hass.data[DOMAIN][self.config_entry.entry_id]
-        self.ap_devices = await client.get_devices()
+        try:
+            self.ap_devices = await client.get_devices()
+        except Exception as e:
+            _LOGGER.error("Error fetching devices: %s", e)
+            return self.async_abort(reason="cannot_connect")
         
         # Filter out already configured APs
         configured_aps = {
@@ -121,25 +141,23 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             # Create new config entry for this AP
             data = {**self.config_entry.data, CONF_AP_MAC: user_input[CONF_AP_MAC]}
-            self.hass.async_create_task(
-                self.hass.config_entries.flow.async_init(
-                    DOMAIN,
-                    context={"source": config_entries.SOURCE_IMPORT},
-                    data=data
-                )
+            
+            # Create as a new config entry
+            return self.async_create_entry(
+                title="",
+                data={},
+                options={},
+                new_data=data
             )
-            return self.async_create_entry(title="", data={})
-        
-        ap_options = [
-            (device["mac"], f"{device.get('name', 'Unnamed AP')} ({device['mac']})")
-            for device in self.ap_devices
-            if device.get("type") == "uap"
-        ]
         
         return self.async_show_form(
             step_id="add_ap",
             data_schema=vol.Schema({
-                vol.Required(CONF_AP_MAC): vol.In(dict(ap_options))
+                vol.Required(CONF_AP_MAC): vol.In(dict([
+                    (d["mac"], f"{d.get('name', 'Unnamed AP')} ({d['mac']})")
+                    for d in self.ap_devices
+                    if d.get("type") == "uap"
+                ]))
             }),
             errors=errors
         )
