@@ -134,7 +134,7 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         if not ap_options:
             return self.async_abort(reason="no_new_aps")
         
-        return await self.async_step_add_ap()
+        return await self.async_step_add_ap(user_input)
 
     async def async_step_add_ap(self, user_input=None):
         """Add additional AP."""
@@ -146,19 +146,19 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
             # Create as a new config entry
             return self.async_create_entry(
                 title="",
-                data={},
-                options={},
-                new_data=data
+                data={}
             )
+        
+        ap_options = [
+            (d["mac"], f"{d.get('name', 'Unnamed AP')} ({d['mac']})")
+            for d in self.ap_devices
+            if d.get("type") == "uap"
+        ]
         
         return self.async_show_form(
             step_id="add_ap",
             data_schema=vol.Schema({
-                vol.Required(CONF_AP_MAC): vol.In(dict([
-                    (d["mac"], f"{d.get('name', 'Unnamed AP')} ({d['mac']})")
-                    for d in self.ap_devices
-                    if d.get("type") == "uap"
-                ]))
+                vol.Required(CONF_AP_MAC): vol.In(dict(ap_options))
             }),
             errors=errors
         )
