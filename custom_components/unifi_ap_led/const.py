@@ -1,3 +1,5 @@
+from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD
+
 DOMAIN = "unifi_ap_led"
 CONF_SITE = "site"
 CONF_AP_MAC = "ap_mac"
