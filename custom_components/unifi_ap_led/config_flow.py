@@ -50,8 +50,9 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.error("Connection error: %s", e, exc_info=True)
                 errors["base"] = "unknown"
             finally:
-                # Don't close session yet, we'll use it for next steps
-                pass
+                # If we have an error, close the client
+                if errors and self.client:
+                    await self.client.close()
         
         # Show form with current inputs
         return self.async_show_form(
@@ -74,11 +75,19 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             site_name = next((s["name"] for s in self.sites if s["_id"] == self.selected_site), "Unknown")
             
             # Get devices for selected site
-            self.ap_devices = await self.client.get_devices(self.selected_site)
+            try:
+                self.ap_devices = await self.client.get_devices(self.selected_site)
+            except Exception as e:
+                _LOGGER.error("Error getting devices: %s", e, exc_info=True)
+                errors["base"] = "unknown"
+            else:
+                if self.ap_devices:
+                    return await self.async_step_select_ap()
+                errors["base"] = "no_aps"
             
-            if self.ap_devices:
-                return await self.async_step_select_ap()
-            errors["base"] = "no_aps"
+            # If we have errors, close the client
+            if errors and self.client:
+                await self.client.close()
         
         # Create list of sites for selection
         site_options = [
@@ -87,6 +96,8 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         ]
         
         if not site_options:
+            if self.client:
+                await self.client.close()
             return self.async_abort(reason="no_sites")
         
         return self.async_show_form(
@@ -103,11 +114,12 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         if user_input is not None:
             # Create entry with controller and site data
+            site_name = next((s["name"] for s in self.sites if s["_id"] == self.selected_site), "Unknown")
             data = {
                 **self.controller_data,
                 CONF_SITE_ID: self.selected_site,
                 CONF_AP_MAC: user_input[CONF_AP_MAC],
-                CONF_SITE_NAME: next((s["name"] for s in self.sites if s["_id"] == self.selected_site), "Unknown")
+                CONF_SITE_NAME: site_name
             }
             
             # Set unique ID to prevent duplicate entries
@@ -126,15 +138,17 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Create list of APs for selection
         ap_options = []
         for device in self.ap_devices:
-            if device.get("type") in ["uap", "udm", "udr", "uxg", "usw", "usg"]:  # Include various UniFi devices
-                name = device.get("name", "Unnamed Device")
-                mac = device.get("mac")
-                model = device.get("model")
-                if mac:
-                    display_name = f"{name} ({model}, {mac})" if model else f"{name} ({mac})"
-                    ap_options.append((mac, display_name))
+            # Include all UniFi devices that have MAC addresses
+            name = device.get("name", "Unnamed Device")
+            mac = device.get("mac")
+            model = device.get("model")
+            if mac:
+                display_name = f"{name} ({model}, {mac})" if model else f"{name} ({mac})"
+                ap_options.append((mac, display_name))
         
         if not ap_options:
+            if self.client:
+                await self.client.close()
             return self.async_abort(reason="no_aps")
         
         return self.async_show_form(
@@ -145,6 +159,12 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={"ap_count": len(ap_options)}
         )
+
+    async def async_step_cancel(self, user_input=None):
+        """Handle flow cancellation."""
+        if self.client:
+            await self.client.close()
+        return await super().async_step_cancel(user_input)
 
     @staticmethod
     @callback
@@ -173,12 +193,16 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         
         try:
             if not await self.client.login():
+                if self.client:
+                    await self.client.close()
                 return self.async_abort(reason="cannot_connect")
             
             # Get devices for the same site
             self.ap_devices = await self.client.get_devices(data[CONF_SITE_ID])
         except Exception as e:
             _LOGGER.error("Error fetching devices: %s", e, exc_info=True)
+            if self.client:
+                await self.client.close()
             return self.async_abort(reason="cannot_connect")
         
         # Filter out already configured APs
@@ -190,16 +214,17 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         
         ap_options = []
         for device in self.ap_devices:
-            if device.get("type") in ["uap", "udm", "udr", "uxg", "usw", "usg"]:
-                mac = device.get("mac")
-                if mac and mac not in configured_aps:
-                    name = device.get("name", "Unnamed Device")
-                    model = device.get("model")
-                    display_name = f"{name} ({model}, {mac})" if model else f"{name} ({mac})"
-                    ap_options.append((mac, display_name))
+            # Include all devices with MAC addresses
+            mac = device.get("mac")
+            if mac and mac not in configured_aps:
+                name = device.get("name", "Unnamed Device")
+                model = device.get("model")
+                display_name = f"{name} ({model}, {mac})" if model else f"{name} ({mac})"
+                ap_options.append((mac, display_name))
         
         if not ap_options:
-            await self.client.close()
+            if self.client:
+                await self.client.close()
             return self.async_abort(reason="no_new_aps")
         
         return await self.async_step_add_ap(user_input)
@@ -227,7 +252,7 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         ap_options = [
             (d["mac"], f"{d.get('name', 'Unnamed Device')} ({d.get('model', 'Unknown')}, {d['mac']})")
             for d in self.ap_devices
-            if d.get("type") in ["uap", "udm", "udr", "uxg", "usw", "usg"]
+            if d.get("mac")
         ]
         
         return self.async_show_form(
@@ -237,3 +262,9 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
             }),
             errors=errors
         )
+    
+    async def async_step_cancel(self, user_input=None):
+        """Handle options flow cancellation."""
+        if self.client:
+            await self.client.close()
+        return await super().async_step_cancel(user_input)
