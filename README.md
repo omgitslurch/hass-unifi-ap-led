@@ -18,7 +18,6 @@ You will need:
 - UniFi Controller IP/hostname
 - Username/password (use a local account with limited permissions)
 - Site ID (usually `default`)
-- AP MAC address (e.g., `78:8a:20:xx:xx:xx`)
 
 ## Flash Button
 
@@ -26,7 +25,7 @@ Triggers the `locate` command to blink the AP LED briefly. Useful for physically
 
 ## Security
 
-⚠️ This integration disables SSL verification when talking to your controller. Make sure your network is secure and credentials are protected.
+⚠️ This integration allows you to disable SSL verification when talking to your controller. Make sure your network is secure and credentials are protected.
 
 ## License
 
