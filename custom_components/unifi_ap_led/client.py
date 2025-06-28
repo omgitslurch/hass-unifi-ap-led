@@ -4,7 +4,7 @@ import asyncio
 from typing import Dict, List, Optional
 
 _LOGGER = logging.getLogger(__name__)
-MAX_RETRIES = 3  # Max retries for API calls
+MAX_RETRIES = 3
 
 class UnifiAPClient:
     def __init__(self, host: str, username: str, password: str, port: int, verify_ssl: bool):
@@ -16,40 +16,52 @@ class UnifiAPClient:
         self.session = aiohttp.ClientSession()
         self.cookies = None
         self.sites = []
+        self.base_path = "api"  # Default to standard controller
+        self.is_udm_pro = False  # Flag for UDM Pro detection
 
     async def login(self) -> bool:
         """Authenticate with UniFi controller."""
         try:
+            # First try standard controller login
             url = f"https://{self.host}:{self.port}/api/login"
             payload = {"username": self.username, "password": self.password}
-            async with asyncio.timeout(15):  # Increased timeout
+            async with asyncio.timeout(15):
                 async with self.session.post(
                     url, json=payload, ssl=self.verify_ssl
                 ) as resp:
                     if resp.status == 200:
                         self.cookies = resp.cookies
+                        self.base_path = "api"
                         return True
-                    # Try to get error details
-                    try:
-                        error_data = await resp.json()
-                        _LOGGER.error(
-                            "Login failed with status %s: %s", 
-                            resp.status, 
-                            error_data.get("meta", {}).get("msg", "Unknown error")
-                        )
-                    except:
+                    
+                    # If standard login fails, try UDM Pro login
+                    url = f"https://{self.host}:{self.port}/proxy/network/api/login"
+                    async with self.session.post(
+                        url, json=payload, ssl=self.verify_ssl
+                    ) as resp:
+                        if resp.status == 200:
+                            self.cookies = resp.cookies
+                            self.base_path = "proxy/network/api"
+                            self.is_udm_pro = True
+                            return True
+                        
                         _LOGGER.error("Login failed with status: %s", resp.status)
+                        try:
+                            error_data = await resp.json()
+                            _LOGGER.error("Error details: %s", error_data)
+                        except:
+                            pass
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             _LOGGER.error("Connection error during login: %s", err)
         return False
 
     async def get_sites(self) -> List[Dict]:
         """Get list of available sites."""
-        return await self._api_request(f"https://{self.host}:{self.port}/api/self/sites")
+        return await self._api_request(f"https://{self.host}:{self.port}/{self.base_path}/self/sites")
 
     async def get_devices(self, site_id: str) -> List[Dict]:
         """Get list of all UniFi devices for a specific site."""
-        return await self._api_request(f"https://{self.host}:{self.port}/api/s/{site_id}/stat/device")
+        return await self._api_request(f"https://{self.host}:{self.port}/{self.base_path}/s/{site_id}/stat/device")
 
     async def _api_request(self, url: str) -> List[Dict]:
         """Generic API request handler with retry logic."""
@@ -60,7 +72,7 @@ class UnifiAPClient:
                     return []
                 
                 _LOGGER.debug("API request to: %s (attempt %d)", url, attempt + 1)
-                async with asyncio.timeout(20):  # Increased timeout to 20 seconds
+                async with asyncio.timeout(20):
                     async with self.session.get(
                         url, cookies=self.cookies, ssl=self.verify_ssl
                     ) as resp:
@@ -96,13 +108,23 @@ class UnifiAPClient:
 
     async def flash_led(self, site_id: str, mac: str) -> bool:
         """Flash LED on specific AP."""
+        url = f"https://{self.host}:{self.port}/{self.base_path}/s/{site_id}/cmd/devmgr"
+        payload = {"mac": mac.lower(), "cmd": "set-locate", "locate": True}
+        return await self._post_request(url, payload)
+
+    async def set_led_state(self, site_id: str, mac: str, state: bool) -> bool:
+        """Set permanent LED state."""
+        url = f"https://{self.host}:{self.port}/{self.base_path}/s/{site_id}/rest/device/{mac.lower()}"
+        payload = {"led_override": "on" if state else "off"}
+        return await self._put_request(url, payload)
+
+    async def _post_request(self, url: str, payload: Dict) -> bool:
+        """Generic POST request handler."""
         for attempt in range(MAX_RETRIES):
             try:
                 if not self.cookies and not await self.login():
                     return False
-
-                url = f"https://{self.host}:{self.port}/api/s/{site_id}/cmd/devmgr"
-                payload = {"mac": mac.lower(), "cmd": "set-locate", "locate": True}
+                
                 async with asyncio.timeout(20):
                     async with self.session.post(
                         url, json=payload, cookies=self.cookies, ssl=self.verify_ssl
@@ -112,28 +134,21 @@ class UnifiAPClient:
                         if resp.status == 401:
                             self.cookies = None
                             continue
-                        _LOGGER.error("Flash LED failed with status: %s", resp.status)
+                        _LOGGER.error("POST request failed, status: %s", resp.status)
             except asyncio.TimeoutError:
-                _LOGGER.warning("Timeout on flash_led attempt %d", attempt + 1)
+                _LOGGER.warning("Timeout on POST request to %s", url)
             except (aiohttp.ClientError) as err:
-                _LOGGER.error("Connection error during flash_led: %s", err)
-            except Exception as e:
-                _LOGGER.error("Unexpected error in flash_led: %s", e, exc_info=True)
-            
+                _LOGGER.error("Connection error: %s", err)
             await asyncio.sleep(1 * (attempt + 1))
-        
-        _LOGGER.error("Flash LED failed after %d attempts", MAX_RETRIES)
         return False
 
-    async def set_led_state(self, site_id: str, mac: str, state: bool) -> bool:
-        """Set permanent LED state."""
+    async def _put_request(self, url: str, payload: Dict) -> bool:
+        """Generic PUT request handler."""
         for attempt in range(MAX_RETRIES):
             try:
                 if not self.cookies and not await self.login():
                     return False
-
-                url = f"https://{self.host}:{self.port}/api/s/{site_id}/rest/device/{mac.lower()}"
-                payload = {"led_override": "on" if state else "off"}
+                
                 async with asyncio.timeout(20):
                     async with self.session.put(
                         url, json=payload, cookies=self.cookies, ssl=self.verify_ssl
@@ -143,17 +158,12 @@ class UnifiAPClient:
                         if resp.status == 401:
                             self.cookies = None
                             continue
-                        _LOGGER.error("Set LED state failed with status: %s", resp.status)
+                        _LOGGER.error("PUT request failed, status: %s", resp.status)
             except asyncio.TimeoutError:
-                _LOGGER.warning("Timeout on set_led_state attempt %d", attempt + 1)
+                _LOGGER.warning("Timeout on PUT request to %s", url)
             except (aiohttp.ClientError) as err:
-                _LOGGER.error("Connection error during set_led_state: %s", err)
-            except Exception as e:
-                _LOGGER.error("Unexpected error in set_led_state: %s", e, exc_info=True)
-            
+                _LOGGER.error("Connection error: %s", err)
             await asyncio.sleep(1 * (attempt + 1))
-        
-        _LOGGER.error("Set LED state failed after %d attempts", MAX_RETRIES)
         return False
 
     async def close(self):
