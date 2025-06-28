@@ -67,27 +67,29 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors
         )
 
-    async def async_step_select_site(self, user_input=None):
-        """Select Site to use."""
-        errors = {}
-        if user_input is not None:
-            self.selected_site = user_input[CONF_SITE_ID]
-            site_name = next((s["name"] for s in self.sites if s["_id"] == self.selected_site), "Unknown")
-            
-            # Get devices for selected site
-            try:
-                self.ap_devices = await self.client.get_devices(self.selected_site)
-            except Exception as e:
-                _LOGGER.error("Error getting devices: %s", e, exc_info=True)
-                errors["base"] = "unknown"
-            else:
-                if self.ap_devices:
-                    return await self.async_step_select_ap()
-                errors["base"] = "no_aps"
-            
-            # If we have errors, close the client
-            if errors and self.client:
-                await self.client.close()
+async def async_step_select_site(self, user_input=None):
+    """Select Site to use."""
+    errors = {}
+    if user_input is not None:
+        self.selected_site = user_input[CONF_SITE_ID]
+        site_name = next((s["name"] for s in self.sites if s["_id"] == self.selected_site), "Unknown")
+        
+        # Get devices for selected site
+        try:
+            self.ap_devices = await self.client.get_devices(self.selected_site)
+        except asyncio.TimeoutError:
+            errors["base"] = "timeout"
+        except Exception as e:
+            _LOGGER.error("Error getting devices: %s", e, exc_info=True)
+            errors["base"] = "unknown"
+        else:
+            if self.ap_devices:
+                return await self.async_step_select_ap()
+            errors["base"] = "no_aps"
+        
+        # If we have errors, close the client
+        if errors and self.client:
+            await self.client.close()
         
         # Create list of sites for selection
         site_options = [
