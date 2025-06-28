@@ -20,6 +20,7 @@ class UnifiAPClient:
         self.is_udm = False
         self.csrf_token = None
         self.log = logging.getLogger(f"{__name__}.client")
+        self.log.setLevel(logging.DEBUG)  # Enable detailed logging
 
     def _create_ssl_context(self):
         """Create SSL context based on verification setting"""
@@ -112,13 +113,20 @@ class UnifiAPClient:
             self.log.error("Failed to detect controller mode", exc_info=True)
             self.is_udm = False
 
+    async def _ensure_authenticated(self):
+        """Verify we have a valid session, reauthenticate if needed"""
+        if not self.session.cookie_jar.filter_cookies(f"https://{self.host}"):
+            self.log.debug("No session cookies found, re-authenticating")
+            return await self.login()
+        return True
+
     async def login(self) -> bool:
         """Authenticate with UniFi controller"""
         self.log.debug("Attempting login...")
         
-        # Clear existing cookies
+        # Clear existing cookies and reset token
         self.session.cookie_jar.clear()
-        self.csrf_token = None  # Reset CSRF token
+        self.csrf_token = None
         
         # Determine controller type
         await self._check_controller_mode()
@@ -133,7 +141,10 @@ class UnifiAPClient:
             resp, data = await self._perform_request("POST", login_url, payload)
             if resp.status == 200:
                 self.log.info("Login successful")
-                return True
+                # Verify we actually have session cookies
+                cookies = self.session.cookie_jar.filter_cookies(f"https://{self.host}")
+                self.log.debug(f"Session cookies: {cookies}")
+                return bool(cookies)
                 
             self.log.error(f"Login failed with status: {resp.status}")
             return False
@@ -153,7 +164,21 @@ class UnifiAPClient:
         """Get list of available sites"""
         self.log.debug("Fetching sites...")
         try:
-            url = self._prefix_url("api/self/sites")
+            # Ensure we're authenticated
+            if not await self._ensure_authenticated():
+                self.log.error("Not authenticated when fetching sites")
+                return []
+                
+            # Use different endpoint based on controller type
+            if self.is_udm:
+                endpoint = "api/self/sites"
+            else:
+                # Standard controllers use this endpoint
+                endpoint = "api/sites"
+                
+            url = self._prefix_url(endpoint)
+            self.log.debug(f"Using sites endpoint: {url}")
+            
             resp, data = await self._perform_request("GET", url)
             
             if resp.status == 200:
@@ -171,6 +196,11 @@ class UnifiAPClient:
         """Get list of all UniFi devices for a specific site"""
         self.log.debug(f"Fetching devices for site {site_id}...")
         try:
+            # Ensure we're authenticated
+            if not await self._ensure_authenticated():
+                self.log.error("Not authenticated when fetching devices")
+                return []
+                
             url = self._prefix_url(f"api/s/{site_id}/stat/device")
             resp, data = await self._perform_request("GET", url)
             
@@ -189,6 +219,11 @@ class UnifiAPClient:
         """Flash LED on specific AP"""
         self.log.debug(f"Flashing LED for {mac} in site {site_id}")
         try:
+            # Ensure we're authenticated
+            if not await self._ensure_authenticated():
+                self.log.error("Not authenticated when flashing LED")
+                return False
+                
             url = self._prefix_url(f"api/s/{site_id}/cmd/devmgr")
             payload = {"mac": mac.lower(), "cmd": "set-locate", "locate": True}
             resp, _ = await self._perform_request("POST", url, payload)
@@ -201,6 +236,11 @@ class UnifiAPClient:
         """Set permanent LED state"""
         self.log.debug(f"Setting LED state for {mac} to {'on' if state else 'off'}")
         try:
+            # Ensure we're authenticated
+            if not await self._ensure_authenticated():
+                self.log.error("Not authenticated when setting LED state")
+                return False
+                
             url = self._prefix_url(f"api/s/{site_id}/rest/device/{mac.lower()}")
             payload = {"led_override": "on" if state else "off"}
             resp, _ = await self._perform_request("PUT", url, payload)
