@@ -23,6 +23,7 @@ class UnifiAPClient:
         self.csrf_token = None
         self.log = logging.getLogger(f"{__name__}.client")
         self.log.setLevel(logging.DEBUG)
+        self.authenticated = False
 
     async def create_ssl_context(self):
         """Create SSL context asynchronously to avoid blocking event loop"""
@@ -63,7 +64,7 @@ class UnifiAPClient:
                               allow_redirects: bool = True) -> Tuple[aiohttp.ClientResponse, Any]:
         """Perform API request with proper headers and CSRF handling"""
         # Ensure SSL context and session are created
-        if self.ssl_context is None:
+        if self.ssl_context is None or self.session is None:
             await self.create_ssl_context()
             
         headers = {
@@ -125,29 +126,25 @@ class UnifiAPClient:
         if self.session:
             self.session.cookie_jar.clear()
         self.csrf_token = None
+        self.authenticated = False
         
-        # First try the standard controller login
+        # Use the standard controller login endpoint
         login_url = "/api/login"
         payload = {"username": self.username, "password": self.password}
         
-        self.log.debug(f"Trying standard login: {login_url}")
+        self.log.debug(f"Using login URL: {login_url}")
         
         try:
             resp, data = await self._perform_request("POST", login_url, payload)
             if resp.status == 200:
-                self.is_udm = False
-                self.log.info("Login successful (standard controller)")
-                return True
+                self.log.info("Login successful")
+                self.authenticated = True
                 
-            # If we get 404, try UDM login endpoint
-            if resp.status == 404:
-                login_url = "/api/auth/login"
-                self.log.debug(f"Trying UDM login: {login_url}")
-                resp, data = await self._perform_request("POST", login_url, payload)
-                if resp.status == 200:
-                    self.is_udm = True
-                    self.log.info("Login successful (UDM controller)")
-                    return True
+                # Log session cookies for debugging
+                cookies = self.session.cookie_jar.filter_cookies(f"https://{self.host}:{self.port}")
+                self.log.debug(f"Session cookies: {cookies}")
+                
+                return True
                 
             self.log.error(f"Login failed with status: {resp.status}")
             return False
@@ -155,21 +152,24 @@ class UnifiAPClient:
             self.log.error("Login failed", exc_info=True)
             return False
 
-    def _prefix_url(self, url: str) -> str:
-        """Apply proper URL prefix based on controller type"""
-        # Remove leading slash if present
-        url = url.lstrip('/')
-        if self.is_udm:
-            return f"/proxy/network/{url}"
-        return f"/{url}"
+    async def _ensure_authenticated(self):
+        """Ensure we have a valid authenticated session"""
+        if not self.authenticated:
+            self.log.debug("Session not authenticated, re-logging in")
+            return await self.login()
+        return True
 
     async def get_sites(self) -> List[Dict]:
         """Get list of available sites"""
         self.log.debug("Fetching sites...")
         try:
-            # Use the same endpoint for both controller types
-            endpoint = "api/self/sites"
-            url = self._prefix_url(endpoint)
+            # Ensure we're authenticated
+            if not await self._ensure_authenticated():
+                self.log.error("Not authenticated when fetching sites")
+                return []
+                
+            # Use the correct endpoint based on your curl test
+            url = "/api/self/sites"
             self.log.debug(f"Using sites endpoint: {url}")
             
             resp, data = await self._perform_request("GET", url)
@@ -181,6 +181,9 @@ class UnifiAPClient:
                     self.log.error("Unexpected sites response format: %s", data)
             else:
                 self.log.error("Failed to get sites, status: %s", resp.status)
+                # If we get 401, mark session as unauthenticated
+                if resp.status == 401:
+                    self.authenticated = False
         except Exception as e:
             self.log.error("Failed to get sites", exc_info=True)
         return []
@@ -189,7 +192,14 @@ class UnifiAPClient:
         """Get list of all UniFi devices for a specific site"""
         self.log.debug(f"Fetching devices for site {site_id}...")
         try:
-            url = self._prefix_url(f"api/s/{site_id}/stat/device")
+            # Ensure we're authenticated
+            if not await self._ensure_authenticated():
+                self.log.error("Not authenticated when fetching devices")
+                return []
+                
+            url = f"/api/s/{site_id}/stat/device"
+            self.log.debug(f"Using devices endpoint: {url}")
+            
             resp, data = await self._perform_request("GET", url)
             
             if resp.status == 200:
@@ -199,6 +209,9 @@ class UnifiAPClient:
                     self.log.error("Unexpected devices response format: %s", data)
             else:
                 self.log.error("Failed to get devices, status: %s", resp.status)
+                # If we get 401, mark session as unauthenticated
+                if resp.status == 401:
+                    self.authenticated = False
         except Exception as e:
             self.log.error("Failed to get devices", exc_info=True)
         return []
@@ -207,7 +220,12 @@ class UnifiAPClient:
         """Flash LED on specific AP"""
         self.log.debug(f"Flashing LED for {mac} in site {site_id}")
         try:
-            url = self._prefix_url(f"api/s/{site_id}/cmd/devmgr")
+            # Ensure we're authenticated
+            if not await self._ensure_authenticated():
+                self.log.error("Not authenticated when flashing LED")
+                return False
+                
+            url = f"/api/s/{site_id}/cmd/devmgr"
             payload = {"mac": mac.lower(), "cmd": "set-locate", "locate": True}
             resp, _ = await self._perform_request("POST", url, payload)
             return resp.status == 200
@@ -219,7 +237,12 @@ class UnifiAPClient:
         """Set permanent LED state"""
         self.log.debug(f"Setting LED state for {mac} to {'on' if state else 'off'}")
         try:
-            url = self._prefix_url(f"api/s/{site_id}/rest/device/{mac.lower()}")
+            # Ensure we're authenticated
+            if not await self._ensure_authenticated():
+                self.log.error("Not authenticated when setting LED state")
+                return False
+                
+            url = f"/api/s/{site_id}/rest/device/{mac.lower()}"
             payload = {"led_override": "on" if state else "off"}
             resp, _ = await self._perform_request("PUT", url, payload)
             return resp.status == 200
@@ -232,3 +255,4 @@ class UnifiAPClient:
         if self.session:
             await self.session.close()
             self.session = None
+            self.authenticated = False
