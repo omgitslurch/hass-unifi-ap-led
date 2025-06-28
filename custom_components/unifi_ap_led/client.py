@@ -1,6 +1,7 @@
 import aiohttp
 import logging
 import asyncio
+import ssl
 from typing import Dict, List, Optional
 
 _LOGGER = logging.getLogger(__name__)
@@ -13,11 +14,22 @@ class UnifiAPClient:
         self.username = username
         self.password = password
         self.verify_ssl = verify_ssl
+        self.ssl_context = self._create_ssl_context()
         self.session = aiohttp.ClientSession()
         self.sites = []
         self.is_udm = False
         self.csrf_token = None
         self.log = logging.getLogger(f"{__name__}.client")
+
+    def _create_ssl_context(self):
+        """Create SSL context based on verification setting"""
+        if not self.verify_ssl:
+            # Create unverified context
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            return ssl_context
+        return None  # Use system default
 
     async def _perform_request(self, method, url, data=None, allow_redirects=True):
         """Perform API request with proper headers and CSRF handling"""
@@ -38,7 +50,7 @@ class UnifiAPClient:
                     full_url,
                     json=data,
                     headers=headers,
-                    ssl=not self.verify_ssl if self.verify_ssl is not None else True,
+                    ssl=self.ssl_context,
                     allow_redirects=allow_redirects
                 ) as resp:
                     # Update CSRF token if present
