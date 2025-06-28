@@ -20,7 +20,6 @@ class UnifiAPClient:
         self.is_udm = False
         self.csrf_token = None
         self.log = logging.getLogger(f"{__name__}.client")
-        self._cookie_jar = aiohttp.CookieJar(unsafe=True)
 
     def _create_ssl_context(self):
         """Create SSL context based on verification setting"""
@@ -62,14 +61,21 @@ class UnifiAPClient:
                         self.csrf_token = resp.headers['x-csrf-token']
                         self.log.debug(f"Updated CSRF token: {self.csrf_token}")
                     
+                    # Handle redirects for mode detection
+                    if resp.status in (301, 302, 303, 307, 308):
+                        return resp
+                    
                     # Return response for processing
                     try:
-                        response_data = await resp.json() if resp.content_type == 'application/json' else await resp.text()
+                        if resp.content_type == 'application/json':
+                            response_data = await resp.json()
+                        else:
+                            response_data = await resp.text()
                     except:
                         response_data = await resp.text()
                         
                     self.log.debug(f"Response ({resp.status}): {response_data}")
-                    return resp
+                    return resp, response_data
         except Exception as e:
             self.log.error(f"Request failed: {e}", exc_info=True)
             raise
@@ -78,32 +84,35 @@ class UnifiAPClient:
         """Determine if we're connecting to a UDM or older controller"""
         self.log.debug("Checking controller mode...")
         try:
-            # First try with redirects disabled to see if we get redirected
-            resp = await self._perform_request("GET", "/", allow_redirects=False)
+            # First try without redirects
+            resp, _ = await self._perform_request("GET", "/", allow_redirects=False)
             
-            # If we get a redirect, it's likely a standard controller
+            # If we get a redirect, it's a standard controller
             if resp.status in (301, 302, 303, 307, 308):
                 self.is_udm = False
-                self.log.debug("Detected standard controller (redirect received)")
+                self.log.debug("Detected standard controller (received redirect)")
+                return
+            
+            # Then try with redirects
+            resp, data = await self._perform_request("GET", "/", allow_redirects=True)
+            
+            # If we get 200 on root, it's UDM
+            if resp.status == 200:
+                self.is_udm = True
+                self.log.debug("Detected UDM controller")
             else:
-                # Try with redirects enabled to see if we get 200
-                resp = await self._perform_request("GET", "/", allow_redirects=True)
-                if resp.status == 200:
-                    self.is_udm = True
-                    self.log.debug("Detected UDM controller (200 on root)")
-                else:
-                    self.is_udm = False
-                    self.log.debug("Detected standard controller (no redirect)")
+                self.is_udm = False
+                self.log.debug("Detected standard controller")
                 
         except Exception as e:
             self.log.error("Failed to detect controller mode", exc_info=True)
             self.is_udm = False
 
     async def login(self) -> bool:
-        """Authenticate with UniFi controller using JavaScript reference logic"""
+        """Authenticate with UniFi controller"""
         self.log.debug("Attempting login...")
         
-        # Clear existing cookies - critical step
+        # Clear existing cookies
         self.session.cookie_jar.clear()
         
         # Determine controller type
@@ -116,24 +125,15 @@ class UnifiAPClient:
         self.log.debug(f"Using login URL: {login_url}")
         
         try:
-            resp = await self._perform_request("POST", login_url, payload)
-            
+            resp, data = await self._perform_request("POST", login_url, payload)
             if resp.status == 200:
                 self.log.info("Login successful")
                 return True
                 
-            # Try to get error details
-            try:
-                error_data = await resp.json()
-                self.log.error(f"Login failed with status {resp.status}: {error_data}")
-            except:
-                error_text = await resp.text()
-                self.log.error(f"Login failed with status {resp.status}: {error_text}")
-            
+            self.log.error(f"Login failed with status: {resp.status}")
             return False
-            
         except Exception as e:
-            self.log.error("Login failed with exception", exc_info=True)
+            self.log.error("Login failed", exc_info=True)
             return False
 
     def _prefix_url(self, url):
@@ -147,10 +147,15 @@ class UnifiAPClient:
         self.log.debug("Fetching sites...")
         try:
             url = self._prefix_url("api/self/sites")
-            resp = await self._perform_request("GET", url)
+            resp, data = await self._perform_request("GET", url)
+            
             if resp.status == 200:
-                data = await resp.json()
-                return data.get("data", [])
+                if isinstance(data, dict) and "data" in data:
+                    return data["data"]
+                else:
+                    self.log.error("Unexpected sites response format: %s", data)
+            else:
+                self.log.error("Failed to get sites, status: %s", resp.status)
         except Exception as e:
             self.log.error("Failed to get sites", exc_info=True)
         return []
@@ -160,10 +165,15 @@ class UnifiAPClient:
         self.log.debug(f"Fetching devices for site {site_id}...")
         try:
             url = self._prefix_url(f"api/s/{site_id}/stat/device")
-            resp = await self._perform_request("GET", url)
+            resp, data = await self._perform_request("GET", url)
+            
             if resp.status == 200:
-                data = await resp.json()
-                return data.get("data", [])
+                if isinstance(data, dict) and "data" in data:
+                    return data["data"]
+                else:
+                    self.log.error("Unexpected devices response format: %s", data)
+            else:
+                self.log.error("Failed to get devices, status: %s", resp.status)
         except Exception as e:
             self.log.error("Failed to get devices", exc_info=True)
         return []
@@ -174,7 +184,7 @@ class UnifiAPClient:
         try:
             url = self._prefix_url(f"api/s/{site_id}/cmd/devmgr")
             payload = {"mac": mac.lower(), "cmd": "set-locate", "locate": True}
-            resp = await self._perform_request("POST", url, payload)
+            resp, _ = await self._perform_request("POST", url, payload)
             return resp.status == 200
         except Exception as e:
             self.log.error("Failed to flash LED", exc_info=True)
@@ -186,7 +196,7 @@ class UnifiAPClient:
         try:
             url = self._prefix_url(f"api/s/{site_id}/rest/device/{mac.lower()}")
             payload = {"led_override": "on" if state else "off"}
-            resp = await self._perform_request("PUT", url, payload)
+            resp, _ = await self._perform_request("PUT", url, payload)
             return resp.status == 200
         except Exception as e:
             self.log.error("Failed to set LED state", exc_info=True)
