@@ -6,6 +6,5 @@
   "requirements": ["aiohttp>=3.8.0"],
   "codeowners": ["@omgitslurch"],
   "config_flow": true,
-  "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/omgitslurch/hass-unifi-ap-led/issues"
+  "iot_class": "cloud_polling"
 }
