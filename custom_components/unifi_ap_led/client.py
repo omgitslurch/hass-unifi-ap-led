@@ -17,7 +17,7 @@ class UnifiAPClient:
         self.password = password
         self.verify_ssl = verify_ssl
         self.ssl_context = None
-        self.session = aiohttp.ClientSession()
+        self.session = None
         self.sites = []
         self.is_udm = False
         self.csrf_token = None
@@ -44,6 +44,9 @@ class UnifiAPClient:
             self.ssl_context = await loop.run_in_executor(
                 None, self._create_default_ssl_context
             )
+            
+        # Create session after SSL context is ready
+        self.session = aiohttp.ClientSession()
 
     def _create_no_verify_ssl_context(self):
         """Create SSL context that does not verify certificates (blocking version)"""
@@ -59,7 +62,7 @@ class UnifiAPClient:
     async def _perform_request(self, method: str, url: str, data: Optional[dict] = None, 
                               allow_redirects: bool = True) -> Tuple[aiohttp.ClientResponse, Any]:
         """Perform API request with proper headers and CSRF handling"""
-        # Ensure SSL context is created
+        # Ensure SSL context and session are created
         if self.ssl_context is None:
             await self.create_ssl_context()
             
@@ -119,14 +122,15 @@ class UnifiAPClient:
         self.log.debug("Attempting login...")
         
         # Clear existing cookies and reset token
-        self.session.cookie_jar.clear()
+        if self.session:
+            self.session.cookie_jar.clear()
         self.csrf_token = None
         
-        # Try standard controller login first
+        # First try the standard controller login
         login_url = "/api/login"
         payload = {"username": self.username, "password": self.password}
         
-        self.log.debug(f"Trying standard login at: {login_url}")
+        self.log.debug(f"Trying standard login: {login_url}")
         
         try:
             resp, data = await self._perform_request("POST", login_url, payload)
@@ -138,7 +142,7 @@ class UnifiAPClient:
             # If we get 404, try UDM login endpoint
             if resp.status == 404:
                 login_url = "/api/auth/login"
-                self.log.debug(f"Trying UDM login at: {login_url}")
+                self.log.debug(f"Trying UDM login: {login_url}")
                 resp, data = await self._perform_request("POST", login_url, payload)
                 if resp.status == 200:
                     self.is_udm = True
@@ -163,12 +167,8 @@ class UnifiAPClient:
         """Get list of available sites"""
         self.log.debug("Fetching sites...")
         try:
-            # Use different endpoint based on controller type
-            if self.is_udm:
-                endpoint = "api/self/sites"
-            else:
-                endpoint = "api/sites"
-                
+            # Use the same endpoint for both controller types
+            endpoint = "api/self/sites"
             url = self._prefix_url(endpoint)
             self.log.debug(f"Using sites endpoint: {url}")
             
@@ -185,4 +185,50 @@ class UnifiAPClient:
             self.log.error("Failed to get sites", exc_info=True)
         return []
 
-    # ... rest of the methods remain the same ...
+    async def get_devices(self, site_id: str) -> List[Dict]:
+        """Get list of all UniFi devices for a specific site"""
+        self.log.debug(f"Fetching devices for site {site_id}...")
+        try:
+            url = self._prefix_url(f"api/s/{site_id}/stat/device")
+            resp, data = await self._perform_request("GET", url)
+            
+            if resp.status == 200:
+                if isinstance(data, dict) and "data" in data:
+                    return data["data"]
+                else:
+                    self.log.error("Unexpected devices response format: %s", data)
+            else:
+                self.log.error("Failed to get devices, status: %s", resp.status)
+        except Exception as e:
+            self.log.error("Failed to get devices", exc_info=True)
+        return []
+
+    async def flash_led(self, site_id: str, mac: str) -> bool:
+        """Flash LED on specific AP"""
+        self.log.debug(f"Flashing LED for {mac} in site {site_id}")
+        try:
+            url = self._prefix_url(f"api/s/{site_id}/cmd/devmgr")
+            payload = {"mac": mac.lower(), "cmd": "set-locate", "locate": True}
+            resp, _ = await self._perform_request("POST", url, payload)
+            return resp.status == 200
+        except Exception as e:
+            self.log.error("Failed to flash LED", exc_info=True)
+            return False
+
+    async def set_led_state(self, site_id: str, mac: str, state: bool) -> bool:
+        """Set permanent LED state"""
+        self.log.debug(f"Setting LED state for {mac} to {'on' if state else 'off'}")
+        try:
+            url = self._prefix_url(f"api/s/{site_id}/rest/device/{mac.lower()}")
+            payload = {"led_override": "on" if state else "off"}
+            resp, _ = await self._perform_request("PUT", url, payload)
+            return resp.status == 200
+        except Exception as e:
+            self.log.error("Failed to set LED state", exc_info=True)
+            return False
+
+    async def close_session(self):
+        """Close client session"""
+        if self.session:
+            await self.session.close()
+            self.session = None
