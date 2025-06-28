@@ -37,7 +37,6 @@ class UnifiLedFlashButton(ButtonEntity):
 
     async def async_press(self) -> None:
         """Flash the AP LED."""
-        # Note: You'll need to update the flash_led method in client.py to accept site_id
         await self._client.flash_led(self._site_id, self._ap_mac)
 
     @property
