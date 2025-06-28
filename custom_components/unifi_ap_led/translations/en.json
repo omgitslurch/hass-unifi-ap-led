@@ -25,6 +25,7 @@
       "invalid_auth": "Invalid authentication",
       "no_aps": "No access points found",
       "no_new_aps": "No additional access points available",
+      "timeout": "Request timed out. Check your controller connection.",
       "unknown": "Unknown error occurred"
     },
     "abort": {
