@@ -2,7 +2,6 @@ import aiohttp
 import logging
 import asyncio
 import ssl
-import json
 from typing import Dict, List, Optional, Tuple, Any
 from homeassistant.util.ssl import create_no_verify_ssl_context
 
@@ -24,6 +23,7 @@ class UnifiAPClient:
         self.log = logging.getLogger(f"{__name__}.client")
         self.log.setLevel(logging.DEBUG)
         self.authenticated = False
+        self.session_cookie = None  # To store the session cookie
 
     async def create_ssl_context(self):
         """Create SSL context asynchronously to avoid blocking event loop"""
@@ -72,6 +72,10 @@ class UnifiAPClient:
             "Content-Type": "application/json"
         }
         
+        # Add session cookie if available
+        if self.session_cookie:
+            headers["Cookie"] = self.session_cookie
+            
         # Add CSRF token for non-GET requests if available
         if self.csrf_token and method != "GET":
             headers['x-csrf-token'] = self.csrf_token
@@ -80,7 +84,7 @@ class UnifiAPClient:
         
         self.log.debug(f"Request: {method} {full_url}")
         if data:
-            self.log.debug(f"Payload: {json.dumps(data)}")
+            self.log.debug(f"Payload: {data}")
             
         try:
             async with asyncio.timeout(15):
@@ -99,6 +103,20 @@ class UnifiAPClient:
                     if 'x-csrf-token' in resp.headers:
                         self.csrf_token = resp.headers['x-csrf-token']
                         self.log.debug(f"Updated CSRF token: {self.csrf_token}")
+                    
+                    # Extract cookies from response
+                    if "set-cookie" in resp.headers:
+                        cookies = resp.headers["set-cookie"]
+                        self.log.debug(f"Received cookies: {cookies}")
+                        
+                        # Capture UniFi session cookie (unifises)
+                        if "unifises" in cookies:
+                            # Extract the unifises cookie value
+                            for part in cookies.split(";"):
+                                if "unifises" in part:
+                                    self.session_cookie = part.strip()
+                                    self.log.debug(f"Stored session cookie: {self.session_cookie}")
+                                    break
                     
                     # Only read response if not redirect
                     if resp.status not in (301, 302, 303, 307, 308):
@@ -127,6 +145,7 @@ class UnifiAPClient:
             self.session.cookie_jar.clear()
         self.csrf_token = None
         self.authenticated = False
+        self.session_cookie = None
         
         # Use the standard controller login endpoint
         login_url = "/api/login"
@@ -140,10 +159,11 @@ class UnifiAPClient:
                 self.log.info("Login successful")
                 self.authenticated = True
                 
-                # Log session cookies for debugging
-                cookies = self.session.cookie_jar.filter_cookies(f"https://{self.host}:{self.port}")
-                self.log.debug(f"Session cookies: {cookies}")
-                
+                if not self.session_cookie:
+                    self.log.error("Failed to capture session cookie")
+                else:
+                    self.log.debug(f"Using session cookie: {self.session_cookie}")
+                    
                 return True
                 
             self.log.error(f"Login failed with status: {resp.status}")
@@ -151,13 +171,6 @@ class UnifiAPClient:
         except Exception as e:
             self.log.error("Login failed", exc_info=True)
             return False
-
-    async def _ensure_authenticated(self):
-        """Ensure we have a valid authenticated session"""
-        if not self.authenticated:
-            self.log.debug("Session not authenticated, re-logging in")
-            return await self.login()
-        return True
 
     async def get_sites(self) -> List[Dict]:
         """Get list of available sites"""
@@ -168,7 +181,6 @@ class UnifiAPClient:
                 self.log.error("Not authenticated when fetching sites")
                 return []
                 
-            # Use the correct endpoint based on your curl test
             url = "/api/self/sites"
             self.log.debug(f"Using sites endpoint: {url}")
             
@@ -187,6 +199,13 @@ class UnifiAPClient:
         except Exception as e:
             self.log.error("Failed to get sites", exc_info=True)
         return []
+
+    async def _ensure_authenticated(self):
+        """Ensure we have a valid authenticated session"""
+        if not self.authenticated:
+            self.log.debug("Session not authenticated, re-logging in")
+            return await self.login()
+        return True
 
     async def get_devices(self, site_id: str) -> List[Dict]:
         """Get list of all UniFi devices for a specific site"""
@@ -209,7 +228,6 @@ class UnifiAPClient:
                     self.log.error("Unexpected devices response format: %s", data)
             else:
                 self.log.error("Failed to get devices, status: %s", resp.status)
-                # If we get 401, mark session as unauthenticated
                 if resp.status == 401:
                     self.authenticated = False
         except Exception as e:
