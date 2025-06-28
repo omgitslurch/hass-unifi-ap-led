@@ -94,4 +94,68 @@ class UnifiAPClient:
         _LOGGER.error("API request failed after %d attempts", MAX_RETRIES)
         return []
 
-    # Other methods remain the same with updated URLs
+    async def flash_led(self, site_id: str, mac: str) -> bool:
+        """Flash LED on specific AP."""
+        for attempt in range(MAX_RETRIES):
+            try:
+                if not self.cookies and not await self.login():
+                    return False
+
+                url = f"https://{self.host}:{self.port}/api/s/{site_id}/cmd/devmgr"
+                payload = {"mac": mac.lower(), "cmd": "set-locate", "locate": True}
+                async with asyncio.timeout(20):
+                    async with self.session.post(
+                        url, json=payload, cookies=self.cookies, ssl=self.verify_ssl
+                    ) as resp:
+                        if resp.status == 200:
+                            return True
+                        if resp.status == 401:
+                            self.cookies = None
+                            continue
+                        _LOGGER.error("Flash LED failed with status: %s", resp.status)
+            except asyncio.TimeoutError:
+                _LOGGER.warning("Timeout on flash_led attempt %d", attempt + 1)
+            except (aiohttp.ClientError) as err:
+                _LOGGER.error("Connection error during flash_led: %s", err)
+            except Exception as e:
+                _LOGGER.error("Unexpected error in flash_led: %s", e, exc_info=True)
+            
+            await asyncio.sleep(1 * (attempt + 1))
+        
+        _LOGGER.error("Flash LED failed after %d attempts", MAX_RETRIES)
+        return False
+
+    async def set_led_state(self, site_id: str, mac: str, state: bool) -> bool:
+        """Set permanent LED state."""
+        for attempt in range(MAX_RETRIES):
+            try:
+                if not self.cookies and not await self.login():
+                    return False
+
+                url = f"https://{self.host}:{self.port}/api/s/{site_id}/rest/device/{mac.lower()}"
+                payload = {"led_override": "on" if state else "off"}
+                async with asyncio.timeout(20):
+                    async with self.session.put(
+                        url, json=payload, cookies=self.cookies, ssl=self.verify_ssl
+                    ) as resp:
+                        if resp.status == 200:
+                            return True
+                        if resp.status == 401:
+                            self.cookies = None
+                            continue
+                        _LOGGER.error("Set LED state failed with status: %s", resp.status)
+            except asyncio.TimeoutError:
+                _LOGGER.warning("Timeout on set_led_state attempt %d", attempt + 1)
+            except (aiohttp.ClientError) as err:
+                _LOGGER.error("Connection error during set_led_state: %s", err)
+            except Exception as e:
+                _LOGGER.error("Unexpected error in set_led_state: %s", e, exc_info=True)
+            
+            await asyncio.sleep(1 * (attempt + 1))
+        
+        _LOGGER.error("Set LED state failed after %d attempts", MAX_RETRIES)
+        return False
+
+    async def close(self):
+        """Close client session."""
+        await self.session.close()
