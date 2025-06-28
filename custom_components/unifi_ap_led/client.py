@@ -2,7 +2,7 @@ import aiohttp
 import logging
 import asyncio
 import ssl
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Any
 
 _LOGGER = logging.getLogger(__name__)
 MAX_RETRIES = 3
@@ -30,14 +30,16 @@ class UnifiAPClient:
             return ssl_context
         return None
 
-    async def _perform_request(self, method, url, data=None, allow_redirects=True):
+    async def _perform_request(self, method: str, url: str, data: Optional[dict] = None, 
+                              allow_redirects: bool = True) -> Tuple[aiohttp.ClientResponse, Any]:
         """Perform API request with proper headers and CSRF handling"""
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json"
         }
         
-        if self.csrf_token:
+        # Add CSRF token for non-GET requests if available
+        if self.csrf_token and method != "GET":
             headers['x-csrf-token'] = self.csrf_token
             
         full_url = f"https://{self.host}:{self.port}{url}"
@@ -56,24 +58,26 @@ class UnifiAPClient:
                     ssl=self.ssl_context,
                     allow_redirects=allow_redirects
                 ) as resp:
+                    # Always return a tuple for consistent handling
+                    response_data = None
+                    
                     # Update CSRF token if present
                     if 'x-csrf-token' in resp.headers:
                         self.csrf_token = resp.headers['x-csrf-token']
                         self.log.debug(f"Updated CSRF token: {self.csrf_token}")
                     
-                    # Handle redirects for mode detection
-                    if resp.status in (301, 302, 303, 307, 308):
-                        return resp
-                    
-                    # Return response for processing
-                    try:
-                        if resp.content_type == 'application/json':
-                            response_data = await resp.json()
+                    # Only read response if not redirect
+                    if resp.status not in (301, 302, 303, 307, 308):
+                        content_type = resp.headers.get('Content-Type', '')
+                        if 'application/json' in content_type:
+                            try:
+                                response_data = await resp.json()
+                            except Exception as e:
+                                self.log.error(f"JSON decode error: {e}")
+                                response_data = await resp.text()
                         else:
                             response_data = await resp.text()
-                    except:
-                        response_data = await resp.text()
-                        
+                    
                     self.log.debug(f"Response ({resp.status}): {response_data}")
                     return resp, response_data
         except Exception as e:
@@ -93,7 +97,7 @@ class UnifiAPClient:
                 self.log.debug("Detected standard controller (received redirect)")
                 return
             
-            # Then try with redirects
+            # Then try with redirects enabled
             resp, data = await self._perform_request("GET", "/", allow_redirects=True)
             
             # If we get 200 on root, it's UDM
@@ -102,7 +106,7 @@ class UnifiAPClient:
                 self.log.debug("Detected UDM controller")
             else:
                 self.is_udm = False
-                self.log.debug("Detected standard controller")
+                self.log.debug("Detected standard controller (non-200 on root)")
                 
         except Exception as e:
             self.log.error("Failed to detect controller mode", exc_info=True)
@@ -114,6 +118,7 @@ class UnifiAPClient:
         
         # Clear existing cookies
         self.session.cookie_jar.clear()
+        self.csrf_token = None  # Reset CSRF token
         
         # Determine controller type
         await self._check_controller_mode()
@@ -136,8 +141,10 @@ class UnifiAPClient:
             self.log.error("Login failed", exc_info=True)
             return False
 
-    def _prefix_url(self, url):
+    def _prefix_url(self, url: str) -> str:
         """Apply proper URL prefix based on controller type"""
+        # Remove leading slash if present
+        url = url.lstrip('/')
         if self.is_udm:
             return f"/proxy/network/{url}"
         return f"/{url}"
