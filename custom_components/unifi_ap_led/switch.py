@@ -32,33 +32,62 @@ class UnifiLedSwitch(SwitchEntity):
         self._site_id = site_id
         self._ap_mac = ap_mac
         self._site_name = site_name
-        self._is_on = False
+        self._state = None
         self._attr_unique_id = f"unifi_led_{site_id}_{ap_mac}"
+        self._attr_available = False
 
     async def async_turn_on(self, **kwargs):
         """Turn the LED on."""
-        if await self._client.set_led_state(self._site_id, self._ap_mac, True):
-            self._is_on = True
-            self.async_write_ha_state()
+        try:
+            success = await self._client.set_led_state(
+                self._site_id, self._ap_mac, True
+            )
+            if success:
+                self._state = True
+                self.async_write_ha_state()
+            else:
+                _LOGGER.error("Failed to turn LED on for %s", self._ap_mac)
+        except Exception as e:
+            _LOGGER.error("Error turning LED on: %s", e, exc_info=True)
 
     async def async_turn_off(self, **kwargs):
         """Turn the LED off."""
-        if await self._client.set_led_state(self._site_id, self._ap_mac, False):
-            self._is_on = False
-            self.async_write_ha_state()
+        try:
+            success = await self._client.set_led_state(
+                self._site_id, self._ap_mac, False
+            )
+            if success:
+                self._state = False
+                self.async_write_ha_state()
+            else:
+                _LOGGER.error("Failed to turn LED off for %s", self._ap_mac)
+        except Exception as e:
+            _LOGGER.error("Error turning LED off: %s", e, exc_info=True)
 
     async def async_update(self):
-        """Update LED state."""
-        devices = await self._client.get_devices(self._site_id)
-        for device in devices:
-            if device.get("mac") == self._ap_mac:
-                self._is_on = device.get("led_override") == "on"
-                break
+        """Update LED state from controller."""
+        try:
+            devices = await self._client.get_devices(self._site_id)
+            if devices:
+                for device in devices:
+                    if device.get("mac") == self._ap_mac:
+                        led_override = device.get("led_override", "default")
+                        self._state = led_override == "on"
+                        self._attr_available = True
+                        return
+                _LOGGER.warning("Device %s not found in site %s", self._ap_mac, self._site_id)
+                self._attr_available = False
+            else:
+                _LOGGER.warning("No devices found for site %s", self._site_id)
+                self._attr_available = False
+        except Exception as e:
+            _LOGGER.error("Error updating state: %s", e, exc_info=True)
+            self._attr_available = False
 
     @property
     def is_on(self):
         """Return true if LED is on."""
-        return self._is_on
+        return self._state
 
     @property
     def device_info(self):
