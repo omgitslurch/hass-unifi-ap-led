@@ -37,7 +37,6 @@ class UnifiLedSwitch(SwitchEntity):
 
     async def async_turn_on(self, **kwargs):
         """Turn the LED on."""
-        # Note: Update set_led_state in client.py to accept site_id
         if await self._client.set_led_state(self._site_id, self._ap_mac, True):
             self._is_on = True
             self.async_write_ha_state()
