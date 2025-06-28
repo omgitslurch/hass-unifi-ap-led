@@ -37,6 +37,9 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             
             try:
+                # Initialize SSL context
+                await self.client.create_ssl_context()
+                
                 if await self.client.login():
                     self.sites = await self.client.get_sites()
                     self.controller_data = user_input
@@ -50,9 +53,12 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.error("Connection error: %s", e, exc_info=True)
                 errors["base"] = ERRORS["cannot_connect"]
             finally:
-                # If we have an error, close the client
+                # If we have an error, close the client properly
                 if errors and self.client:
-                    await self.client.close()
+                    try:
+                        await self.client.close_session()
+                    except Exception as e:
+                        _LOGGER.error("Error closing client: %s", e)
         
         # Show form with current inputs
         return self.async_show_form(
@@ -93,7 +99,10 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             
             # If we have errors, close the client
             if errors and self.client:
-                await self.client.close()
+                try:
+                    await self.client.close_session()
+                except Exception as e:
+                    _LOGGER.error("Error closing client: %s", e)
         
         # Create list of sites for selection
         site_options = {
@@ -103,7 +112,10 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         if not site_options:
             if self.client:
-                await self.client.close()
+                try:
+                    await self.client.close_session()
+                except Exception as e:
+                    _LOGGER.error("Error closing client: %s", e)
             return self.async_abort(reason=ERRORS["no_sites"])
         
         return self.async_show_form(
@@ -138,8 +150,11 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             
             # Close client session before finishing
             if self.client:
-                await self.client.close()
-                
+                try:
+                    await self.client.close_session()
+                except Exception as e:
+                    _LOGGER.error("Error closing client: %s", e)
+                    
             return self.async_create_entry(
                 title=f"UniFi AP {user_input[CONF_AP_MAC]}",
                 data=data
@@ -154,7 +169,10 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         if not ap_options:
             if self.client:
-                await self.client.close()
+                try:
+                    await self.client.close_session()
+                except Exception as e:
+                    _LOGGER.error("Error closing client: %s", e)
             return self.async_abort(reason=ERRORS["no_aps"])
         
         return self.async_show_form(
@@ -169,7 +187,10 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_cancel(self, user_input=None):
         """Handle flow cancellation."""
         if self.client:
-            await self.client.close()
+            try:
+                await self.client.close_session()
+            except Exception as e:
+                _LOGGER.error("Error closing client: %s", e)
         return await super().async_step_cancel(user_input)
 
     @staticmethod
@@ -198,9 +219,12 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         )
         
         try:
+            # Initialize SSL context
+            await self.client.create_ssl_context()
+            
             if not await self.client.login():
                 if self.client:
-                    await self.client.close()
+                    await self.client.close_session()
                 return self.async_abort(reason=ERRORS["cannot_connect"])
             
             # Get devices for the same site
@@ -209,7 +233,7 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         except Exception as e:
             _LOGGER.error("Error fetching devices: %s", e, exc_info=True)
             if self.client:
-                await self.client.close()
+                await self.client.close_session()
             return self.async_abort(reason=ERRORS["cannot_connect"])
         
         # Filter out already configured APs
@@ -227,7 +251,7 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         
         if not ap_options:
             if self.client:
-                await self.client.close()
+                await self.client.close_session()
             return self.async_abort(reason=ERRORS["no_new_aps"])
         
         return await self.async_step_add_ap()
@@ -244,7 +268,7 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
             
             # Close client session
             if self.client:
-                await self.client.close()
+                await self.client.close_session()
                 
             # Create as a new config entry
             unique_id = f"{data[CONF_SITE_ID]}_{user_input[CONF_AP_MAC]}"
@@ -267,5 +291,5 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_cancel(self, user_input=None):
         """Handle options flow cancellation."""
         if self.client:
-            await self.client.close()
+            await self.client.close_session()
         return await super().async_step_cancel(user_input)
