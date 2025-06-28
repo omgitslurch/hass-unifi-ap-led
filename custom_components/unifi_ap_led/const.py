@@ -13,7 +13,7 @@ ERRORS = {
     "no_sites": "no_sites",
     "no_aps": "no_aps",
     "no_new_aps": "no_new_aps",
-    "unknown": "unknown"
+    "unknown": "unknown",
+    "timeout": "timeout"  # New error type
 }
-
 DEFAULT_PORT = 8443
