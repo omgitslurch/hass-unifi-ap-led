@@ -14,6 +14,7 @@ ERRORS = {
     "no_aps": "no_aps",
     "no_new_aps": "no_new_aps",
     "unknown": "unknown",
-    "timeout": "timeout"  # New error type
+    "timeout": "timeout"
 }
+
 DEFAULT_PORT = 8443
