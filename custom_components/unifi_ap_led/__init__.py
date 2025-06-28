@@ -26,6 +26,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         if not await client.login():
             _LOGGER.error("Failed to login to UniFi controller")
             return False
+        
+        # Verify site access
+        devices = await client.get_devices(data[CONF_SITE_ID])
+        if not devices:
+            _LOGGER.error("No devices found for site %s", data[CONF_SITE_ID])
+            return False
+            
     except Exception as e:
         _LOGGER.error("Error during setup: %s", e, exc_info=True)
         return False
