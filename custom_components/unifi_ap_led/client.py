@@ -14,7 +14,6 @@ class UnifiAPClient:
         self.password = password
         self.verify_ssl = verify_ssl
         self.session = aiohttp.ClientSession()
-        self.cookies = None
         self.sites = []
         self.is_udm = False
         self.csrf_token = None
@@ -39,7 +38,7 @@ class UnifiAPClient:
                     full_url,
                     json=data,
                     headers=headers,
-                    ssl=self.verify_ssl,
+                    ssl=not self.verify_ssl if self.verify_ssl is not None else True,
                     allow_redirects=allow_redirects
                 ) as resp:
                     # Update CSRF token if present
@@ -52,7 +51,11 @@ class UnifiAPClient:
                         return resp
                     
                     # Return response for processing
-                    response_data = await resp.json() if resp.content_type == 'application/json' else await resp.text()
+                    if resp.content_type == 'application/json':
+                        response_data = await resp.json()
+                    else:
+                        response_data = await resp.text()
+                        
                     self.log.debug(f"Response ({resp.status}): {response_data}")
                     return resp
         except Exception as e:
@@ -104,7 +107,7 @@ class UnifiAPClient:
             self.log.error("Login failed", exc_info=True)
             return False
 
-    async def _prefix_url(self, url):
+    def _prefix_url(self, url):
         """Apply proper URL prefix based on controller type"""
         if self.is_udm:
             return f"/proxy/network/{url}"
@@ -114,10 +117,10 @@ class UnifiAPClient:
         """Get list of available sites"""
         self.log.debug("Fetching sites...")
         try:
-            url = await self._prefix_url("api/self/sites")
+            url = self._prefix_url("api/self/sites")
             resp = await self._perform_request("GET", url)
             if resp.status == 200:
-                data = resp.json()
+                data = await resp.json()
                 return data.get("data", [])
         except Exception as e:
             self.log.error("Failed to get sites", exc_info=True)
@@ -127,10 +130,10 @@ class UnifiAPClient:
         """Get list of all UniFi devices for a specific site"""
         self.log.debug(f"Fetching devices for site {site_id}...")
         try:
-            url = await self._prefix_url(f"api/s/{site_id}/stat/device")
+            url = self._prefix_url(f"api/s/{site_id}/stat/device")
             resp = await self._perform_request("GET", url)
             if resp.status == 200:
-                data = resp.json()
+                data = await resp.json()
                 return data.get("data", [])
         except Exception as e:
             self.log.error("Failed to get devices", exc_info=True)
@@ -140,7 +143,7 @@ class UnifiAPClient:
         """Flash LED on specific AP"""
         self.log.debug(f"Flashing LED for {mac} in site {site_id}")
         try:
-            url = await self._prefix_url(f"api/s/{site_id}/cmd/devmgr")
+            url = self._prefix_url(f"api/s/{site_id}/cmd/devmgr")
             payload = {"mac": mac.lower(), "cmd": "set-locate", "locate": True}
             resp = await self._perform_request("POST", url, payload)
             return resp.status == 200
@@ -152,7 +155,7 @@ class UnifiAPClient:
         """Set permanent LED state"""
         self.log.debug(f"Setting LED state for {mac} to {'on' if state else 'off'}")
         try:
-            url = await self._prefix_url(f"api/s/{site_id}/rest/device/{mac.lower()}")
+            url = self._prefix_url(f"api/s/{site_id}/rest/device/{mac.lower()}")
             payload = {"led_override": "on" if state else "off"}
             resp = await self._perform_request("PUT", url, payload)
             return resp.status == 200
