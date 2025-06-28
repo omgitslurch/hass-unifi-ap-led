@@ -43,12 +43,12 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     
                     if self.sites:
                         return await self.async_step_select_site()
-                    errors["base"] = "no_sites"
+                    errors["base"] = ERRORS["no_sites"]
                 else:
-                    errors["base"] = "cannot_connect"
+                    errors["base"] = ERRORS["invalid_auth"]
             except Exception as e:
                 _LOGGER.error("Connection error: %s", e, exc_info=True)
-                errors["base"] = "unknown"
+                errors["base"] = ERRORS["cannot_connect"]
             finally:
                 # If we have an error, close the client
                 if errors and self.client:
@@ -72,38 +72,44 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         if user_input is not None:
             self.selected_site = user_input[CONF_SITE_ID]
-            site_name = next((s["name"] for s in self.sites if s["_id"] == self.selected_site), "Unknown")
+            site_name = next(
+                (s["desc"] for s in self.sites if s["name"] == user_input[CONF_SITE_ID]), 
+                user_input[CONF_SITE_ID]
+            )
             
             # Get devices for selected site
             try:
-                self.ap_devices = await self.client.get_devices(self.selected_site)
+                self.ap_devices = [
+                    d for d in await self.client.get_devices(self.selected_site)
+                    if d.get("type") == "uap"  # Only access points
+                ]
             except Exception as e:
                 _LOGGER.error("Error getting devices: %s", e, exc_info=True)
-                errors["base"] = "unknown"
+                errors["base"] = ERRORS["cannot_connect"]
             else:
                 if self.ap_devices:
                     return await self.async_step_select_ap()
-                errors["base"] = "no_aps"
+                errors["base"] = ERRORS["no_aps"]
             
             # If we have errors, close the client
             if errors and self.client:
                 await self.client.close()
         
         # Create list of sites for selection
-        site_options = [
-            (site["_id"], site.get("desc", site["name"]))
+        site_options = {
+            site["name"]: site.get("desc", site["name"])
             for site in self.sites
-        ]
+        }
         
         if not site_options:
             if self.client:
                 await self.client.close()
-            return self.async_abort(reason="no_sites")
+            return self.async_abort(reason=ERRORS["no_sites"])
         
         return self.async_show_form(
             step_id="select_site",
             data_schema=vol.Schema({
-                vol.Required(CONF_SITE_ID): vol.In(dict(site_options))
+                vol.Required(CONF_SITE_ID): vol.In(site_options)
             }),
             errors=errors,
             description_placeholders={"site_count": len(site_options)}
@@ -114,7 +120,10 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         if user_input is not None:
             # Create entry with controller and site data
-            site_name = next((s["name"] for s in self.sites if s["_id"] == self.selected_site), "Unknown")
+            site_name = next(
+                (s["desc"] for s in self.sites if s["name"] == self.selected_site),
+                self.selected_site
+            )
             data = {
                 **self.controller_data,
                 CONF_SITE_ID: self.selected_site,
@@ -123,7 +132,8 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
             
             # Set unique ID to prevent duplicate entries
-            await self.async_set_unique_id(f"{self.selected_site}_{user_input[CONF_AP_MAC]}")
+            unique_id = f"{self.selected_site}_{user_input[CONF_AP_MAC]}"
+            await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_configured()
             
             # Close client session before finishing
@@ -136,25 +146,21 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         
         # Create list of APs for selection
-        ap_options = []
-        for device in self.ap_devices:
-            # Include all UniFi devices that have MAC addresses
-            name = device.get("name", "Unnamed Device")
-            mac = device.get("mac")
-            model = device.get("model")
-            if mac:
-                display_name = f"{name} ({model}, {mac})" if model else f"{name} ({mac})"
-                ap_options.append((mac, display_name))
+        ap_options = {
+            device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model', 'AP')})"
+            for device in self.ap_devices
+            if device.get("mac")
+        }
         
         if not ap_options:
             if self.client:
                 await self.client.close()
-            return self.async_abort(reason="no_aps")
+            return self.async_abort(reason=ERRORS["no_aps"])
         
         return self.async_show_form(
             step_id="select_ap",
             data_schema=vol.Schema({
-                vol.Required(CONF_AP_MAC): vol.In(dict(ap_options))
+                vol.Required(CONF_AP_MAC): vol.In(ap_options)
             }),
             errors=errors,
             description_placeholders={"ap_count": len(ap_options)}
@@ -195,15 +201,16 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
             if not await self.client.login():
                 if self.client:
                     await self.client.close()
-                return self.async_abort(reason="cannot_connect")
+                return self.async_abort(reason=ERRORS["cannot_connect"])
             
             # Get devices for the same site
-            self.ap_devices = await self.client.get_devices(data[CONF_SITE_ID])
+            devices = await self.client.get_devices(data[CONF_SITE_ID])
+            self.ap_devices = [d for d in devices if d.get("type") == "uap"]
         except Exception as e:
             _LOGGER.error("Error fetching devices: %s", e, exc_info=True)
             if self.client:
                 await self.client.close()
-            return self.async_abort(reason="cannot_connect")
+            return self.async_abort(reason=ERRORS["cannot_connect"])
         
         # Filter out already configured APs
         configured_aps = {
@@ -212,22 +219,18 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
             if entry.data[CONF_SITE_ID] == self.config_entry.data[CONF_SITE_ID]
         }
         
-        ap_options = []
-        for device in self.ap_devices:
-            # Include all devices with MAC addresses
-            mac = device.get("mac")
-            if mac and mac not in configured_aps:
-                name = device.get("name", "Unnamed Device")
-                model = device.get("model")
-                display_name = f"{name} ({model}, {mac})" if model else f"{name} ({mac})"
-                ap_options.append((mac, display_name))
+        ap_options = {
+            device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model', 'AP')})"
+            for device in self.ap_devices
+            if device.get("mac") and device["mac"] not in configured_aps
+        }
         
         if not ap_options:
             if self.client:
                 await self.client.close()
-            return self.async_abort(reason="no_new_aps")
+            return self.async_abort(reason=ERRORS["no_new_aps"])
         
-        return await self.async_step_add_ap(user_input)
+        return await self.async_step_add_ap()
 
     async def async_step_add_ap(self, user_input=None):
         """Add additional AP."""
@@ -244,21 +247,19 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
                 await self.client.close()
                 
             # Create as a new config entry
+            unique_id = f"{data[CONF_SITE_ID]}_{user_input[CONF_AP_MAC]}"
             return self.async_create_entry(
                 title="",
-                data={}
+                data={"unique_id": unique_id, "data": data}
             )
-        
-        ap_options = [
-            (d["mac"], f"{d.get('name', 'Unnamed Device')} ({d.get('model', 'Unknown')}, {d['mac']})")
-            for d in self.ap_devices
-            if d.get("mac")
-        ]
         
         return self.async_show_form(
             step_id="add_ap",
             data_schema=vol.Schema({
-                vol.Required(CONF_AP_MAC): vol.In(dict(ap_options))
+                vol.Required(CONF_AP_MAC): vol.In({
+                    device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model', 'AP')})"
+                    for device in self.ap_devices
+                })
             }),
             errors=errors
         )
