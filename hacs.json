@@ -1,10 +1,10 @@
-{
+ {
   "name": "UniFi AP LED Control",
   "domain": "unifi_ap_led",
   "documentation": "https://github.com/omgitslurch/hass-unifi-ap-led",
   "codeowners": ["@omgitslurch"],
-  "requirements": [],
-  "version": "1.0.0",
+  "requirements": ["aiohttp>=3.8.0"],
+  "version": "1.0.1",
   "config_flow": true,
   "integration_type": "integration"
 }
