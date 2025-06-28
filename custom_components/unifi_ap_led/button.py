@@ -37,7 +37,12 @@ class UnifiLedFlashButton(ButtonEntity):
 
     async def async_press(self) -> None:
         """Flash the AP LED."""
-        await self._client.flash_led(self._site_id, self._ap_mac)
+        try:
+            success = await self._client.flash_led(self._site_id, self._ap_mac)
+            if not success:
+                _LOGGER.error("Failed to flash LED for %s", self._ap_mac)
+        except Exception as e:
+            _LOGGER.error("Error flashing LED: %s", e, exc_info=True)
 
     @property
     def device_info(self):
