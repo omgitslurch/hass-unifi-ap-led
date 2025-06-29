@@ -226,43 +226,43 @@ class UnifiAPClient:
     async def flash_led(self, site_id: str, mac: str) -> asyncio.Task:
         """Flash LED on specific AP and return a task to stop it later"""
         self.log.debug(f"Flashing LED for {mac} in site {site_id}")
-    try:
-        if not await self._ensure_authenticated():
+        try:
+            if not await self._ensure_authenticated():
+                return None
+                
+            endpoint = f"api/s/{site_id}/cmd/devmgr"
+            url = self._prefix_url(endpoint)
+            payload = {"mac": mac.lower(), "cmd": "set-locate", "locate": True}
+            resp, _ = await self._perform_request("POST", url, payload)
+            
+            if resp.status != 200:
+                return None
+                
+            # Create a task to stop flashing after 2 minutes
+            async def stop_after_delay():
+                await asyncio.sleep(120)  # 2 minutes
+                await self.stop_flash_led(site_id, mac)
+                
+            return asyncio.create_task(stop_after_delay())
+        except Exception as e:
+            self.log.error("Failed to flash LED", exc_info=True)
             return None
-            
-        endpoint = f"api/s/{site_id}/cmd/devmgr"
-        url = self._prefix_url(endpoint)
-        payload = {"mac": mac.lower(), "cmd": "set-locate", "locate": True}
-        resp, _ = await self._perform_request("POST", url, payload)
-        
-        if resp.status != 200:
-            return None
-            
-        # Create a task to stop flashing after 2 minutes
-        async def stop_after_delay():
-            await asyncio.sleep(120)  # 2 minutes
-            await self.stop_flash_led(site_id, mac)
-            
-        return asyncio.create_task(stop_after_delay())
-    except Exception as e:
-        self.log.error("Failed to flash LED", exc_info=True)
-        return None
 
     async def stop_flash_led(self, site_id: str, mac: str) -> bool:
-    """Stop flashing LED on specific AP"""
-    self.log.debug(f"Stopping LED flash for {mac} in site {site_id}")
-    try:
-        if not await self._ensure_authenticated():
+        """Stop flashing LED on specific AP"""
+        self.log.debug(f"Stopping LED flash for {mac} in site {site_id}")
+        try:
+            if not await self._ensure_authenticated():
+                return False
+                
+            endpoint = f"api/s/{site_id}/cmd/devmgr"
+            url = self._prefix_url(endpoint)
+            payload = {"mac": mac.lower(), "cmd": "set-locate", "locate": False}
+            resp, _ = await self._perform_request("POST", url, payload)
+            return resp.status == 200
+        except Exception as e:
+            self.log.error("Failed to stop flashing LED", exc_info=True)
             return False
-            
-        endpoint = f"api/s/{site_id}/cmd/devmgr"
-        url = self._prefix_url(endpoint)
-        payload = {"mac": mac.lower(), "cmd": "set-locate", "locate": False}
-        resp, _ = await self._perform_request("POST", url, payload)
-        return resp.status == 200
-    except Exception as e:
-        self.log.error("Failed to stop flashing LED", exc_info=True)
-        return False
 
     async def set_led_state(self, site_id: str, device_id: str, state: bool) -> bool:
         """Set permanent LED state using device ID"""
