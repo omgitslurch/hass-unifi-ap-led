@@ -1,5 +1,5 @@
 {
-  "domain": "unifi_ap_led",
+  "domain": "unifi",
   "name": "UniFi AP LED Control",
   "version": "1.0.3",
   "documentation": "https://github.com/omgitslurch/hass-unifi-ap-led",
