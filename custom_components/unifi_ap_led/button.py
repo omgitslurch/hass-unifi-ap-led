@@ -65,5 +65,6 @@ class UnifiLedFlashButton(ButtonEntity):
             "name": self._device_name,
             "manufacturer": "Ubiquiti",
             "model": "UniFi Access Point",
+            "icon": "mdi:access-point",
             "via_device": (DOMAIN, f"{self._client.host}-{self._site_name}")
         }
