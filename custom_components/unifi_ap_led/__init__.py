@@ -23,6 +23,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     
     # Verify connection
     try:
+        await client.create_ssl_context() 
         if not await client.login():
             _LOGGER.error("Failed to login to UniFi controller")
             return False
@@ -53,5 +54,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     if unload_ok:
         entry_data = hass.data[DOMAIN].pop(entry.entry_id)
         client = entry_data["client"]
-        await client.close_session()  
+    await client.close_session()
     return unload_ok
