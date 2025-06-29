@@ -228,8 +228,7 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
                 return self.async_abort(reason=ERRORS["cannot_connect"])
             
             # Get devices for the same site
-            devices = await self.client.get_devices(data[CONF_SITE_ID])
-            self.ap_devices = [d for d in devices if d.get("type") == "uap"]
+            self.ap_devices = await self.client.get_devices(data[CONF_SITE_ID])
         except Exception as e:
             _LOGGER.error("Error fetching devices: %s", e, exc_info=True)
             if self.client:
