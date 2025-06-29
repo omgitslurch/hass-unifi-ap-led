@@ -1,7 +1,6 @@
 {
   "domain": "unifi_ap_led",
   "name": "UniFi AP LED Control",
-  "logo": "icon.png",
   "version": "1.0.2",
   "documentation": "https://github.com/omgitslurch/hass-unifi-ap-led",
   "requirements": ["aiohttp>=3.8.0"],
@@ -9,5 +8,5 @@
   "config_flow": true,
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/omgitslurch/hass-unifi-ap-led/issues",
-  "icon": "mdi:access-point"
+  "icon": "icon.png"
 }
