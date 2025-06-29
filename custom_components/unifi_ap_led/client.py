@@ -55,7 +55,10 @@ class UnifiAPClient:
     async def _detect_controller_mode(self):
         """Detect if controller is UDM (UniFi Dream Machine)"""
         try:
+            # Try root endpoint without redirects
             resp, _ = await self._perform_request("GET", "/", allow_redirects=False)
+            
+            # UDM returns 200, others redirect
             if resp.status == 200:
                 self.is_udm = True
                 self.log.debug("Detected UDM controller")
@@ -68,8 +71,8 @@ class UnifiAPClient:
     def _prefix_url(self, endpoint: str) -> str:
         """Apply UDM-specific URL prefix if needed"""
         if self.is_udm:
-            return f"proxy/network/{endpoint}"
-        return endpoint
+            return f"/proxy/network/{endpoint.lstrip('/')}"
+        return f"/{endpoint.lstrip('/')}"
 
     async def _perform_request(self, method: str, url: str, data: Optional[dict] = None, 
                               allow_redirects: bool = True) -> Tuple[aiohttp.ClientResponse, Any]:
