@@ -34,18 +34,29 @@ class UnifiLedFlashButton(ButtonEntity):
         self._ap_mac = ap_mac
         self._site_name = site_name
         self._attr_unique_id = f"unifi_flash_{site_id}_{ap_mac}"
+        self._stop_task = None
 
- async def async_press(self) -> None:
-     """Flash the AP LED and schedule auto-stop"""
-     try:
-         stop_task = await self._client.flash_led(self._site_id, self._ap_mac)
-         if not stop_task:
-             _LOGGER.error("Failed to flash LED for %s", self._ap_mac)
-         else:
-             # Store task reference to prevent garbage collection
-             self._stop_task = stop_task
-     except Exception as e:
-         _LOGGER.error("Error flashing LED: %s", e, exc_info=True)
+    async def async_press(self) -> None:
+        """Flash the AP LED and schedule auto-stop"""
+        # Cancel any existing stop task
+        if self._stop_task and not self._stop_task.done():
+            self._stop_task.cancel()
+            self._stop_task = None
+            
+        try:
+            stop_task = await self._client.flash_led(self._site_id, self._ap_mac)
+            if not stop_task:
+                _LOGGER.error("Failed to flash LED for %s", self._ap_mac)
+            else:
+                self._stop_task = stop_task
+        except Exception as e:
+            _LOGGER.error("Error flashing LED: %s", e, exc_info=True)
+
+    async def async_will_remove_from_hass(self):
+        """Cancel stop task when entity is removed"""
+        if self._stop_task and not self._stop_task.done():
+            self._stop_task.cancel()
+            self._stop_task = None
 
     @property
     def device_info(self):
