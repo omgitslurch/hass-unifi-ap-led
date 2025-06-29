@@ -39,6 +39,7 @@ class UnifiLedFlashButton(ButtonEntity):
     _attr_has_entity_name = True
     _attr_name = "Flash LED"
     _attr_device_class = "restart"
+    _attr_icon = "mdi:flash"  # Add this line for the entity icon
     
     def __init__(self, client, site_id, ap_mac, site_name, device_name):
         self._client = client
@@ -65,6 +66,6 @@ class UnifiLedFlashButton(ButtonEntity):
             "name": self._device_name,
             "manufacturer": "Ubiquiti",
             "model": "UniFi Access Point",
-            "icon": "mdi:access-point",
+            "icon": "mdi:access-point",  # Add this line for the device icon
             "via_device": (DOMAIN, f"{self._client.host}-{self._site_name}")
         }
