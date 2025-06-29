@@ -88,6 +88,11 @@ class UnifiLedSwitch(SwitchEntity):
         return self._is_on
 
     @property
+    def icon(self):
+        """Return the icon to use in the frontend."""
+        return "mdi:led-on" if self.is_on else "mdi:led-off"
+
+    @property
     def device_info(self):
         """Return device info for parent device."""
         return {
@@ -95,5 +100,6 @@ class UnifiLedSwitch(SwitchEntity):
             "name": self._device_name,
             "manufacturer": "Ubiquiti",
             "model": "UniFi Access Point",
+            "icon": "mdi:access-point",  # Add this line for the device icon
             "via_device": (DOMAIN, f"{self._client.host}-{self._site_name}")
         }
