@@ -19,7 +19,19 @@ async def async_setup_entry(
     ap_mac = entry.data[CONF_AP_MAC]
     site_name = entry.data.get(CONF_SITE_NAME, "UniFi Site")
     
-    async_add_entities([UnifiLedFlashButton(client, site_id, ap_mac, site_name)])
+    # Get device details to retrieve AP name
+    device_name = f"AP {ap_mac}"
+    try:
+        devices = await client.get_devices(site_id)
+        for device in devices:
+            if device.get("mac") == ap_mac:
+                device_name = device.get("name", device_name)
+                _LOGGER.debug(f"Found device name: {device_name} for MAC: {ap_mac}")
+                break
+    except Exception as e:
+        _LOGGER.error(f"Error fetching device details: {e}", exc_info=True)
+    
+    async_add_entities([UnifiLedFlashButton(client, site_id, ap_mac, site_name, device_name)])
 
 class UnifiLedFlashButton(ButtonEntity):
     """Representation of a UniFi AP LED flash button."""
@@ -28,11 +40,12 @@ class UnifiLedFlashButton(ButtonEntity):
     _attr_name = "Flash LED"
     _attr_device_class = "restart"
     
-    def __init__(self, client, site_id, ap_mac, site_name):
+    def __init__(self, client, site_id, ap_mac, site_name, device_name):
         self._client = client
         self._site_id = site_id
         self._ap_mac = ap_mac
         self._site_name = site_name
+        self._device_name = device_name
         self._attr_unique_id = f"unifi_flash_{site_id}_{ap_mac}"
 
     async def async_press(self) -> None:
@@ -49,7 +62,8 @@ class UnifiLedFlashButton(ButtonEntity):
         """Return device info for parent device."""
         return {
             "identifiers": {(DOMAIN, self._ap_mac)},
-            "name": f"UniFi AP {self._ap_mac}",
+            "name": self._device_name,
             "manufacturer": "Ubiquiti",
+            "model": "UniFi Access Point",
             "via_device": (DOMAIN, f"{self._client.host}-{self._site_name}")
         }
