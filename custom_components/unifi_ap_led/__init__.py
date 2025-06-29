@@ -8,7 +8,7 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = ["switch", "button"]
+PLATFORMS = ["light", "button"]  # Changed from "switch" to "light"
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Set up UniFi AP LED from a config entry."""
@@ -44,7 +44,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         "site_id": data[CONF_SITE_ID]
     }
     
-    # Set up platforms
+    # Set up platforms (now includes light instead of switch)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
