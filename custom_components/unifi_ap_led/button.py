@@ -35,14 +35,17 @@ class UnifiLedFlashButton(ButtonEntity):
         self._site_name = site_name
         self._attr_unique_id = f"unifi_flash_{site_id}_{ap_mac}"
 
-    async def async_press(self) -> None:
-        """Flash the AP LED."""
-        try:
-            success = await self._client.flash_led(self._site_id, self._ap_mac)
-            if not success:
-                _LOGGER.error("Failed to flash LED for %s", self._ap_mac)
-        except Exception as e:
-            _LOGGER.error("Error flashing LED: %s", e, exc_info=True)
+ async def async_press(self) -> None:
+     """Flash the AP LED and schedule auto-stop"""
+     try:
+         stop_task = await self._client.flash_led(self._site_id, self._ap_mac)
+         if not stop_task:
+             _LOGGER.error("Failed to flash LED for %s", self._ap_mac)
+         else:
+             # Store task reference to prevent garbage collection
+             self._stop_task = stop_task
+     except Exception as e:
+         _LOGGER.error("Error flashing LED: %s", e, exc_info=True)
 
     @property
     def device_info(self):
