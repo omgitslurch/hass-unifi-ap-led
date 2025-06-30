@@ -2,14 +2,16 @@
   "config": {
     "step": {
       "user": {
-        "title": "UniFi Controller Einrichtung",
+        "title": "UniFi-Controller-Einrichtung",
         "data": {
-          "host": "Controller Host/IP",
+          "host": "Controller-Host/IP",
           "username": "Benutzername",
           "password": "Passwort",
-          "site": "Standortname",
+          "port": "Port (Standard: 8443)",
+          "site": "Site-Name (Standard: default)",
           "verify_ssl": "SSL überprüfen"
-        }
+        },
+        "description": "Hinweis: Der Site-Name ist normalerweise 'default', es sei denn, Sie haben mehrere Sites."
       },
       "select_ap": {
         "title": "Zugangspunkt auswählen",
@@ -19,27 +21,17 @@
       }
     },
     "error": {
-      "cannot_connect": "Verbindung zum UniFi Controller fehlgeschlagen",
+      "cannot_connect": "Verbindung zum UniFi-Controller fehlgeschlagen",
       "invalid_auth": "Ungültige Authentifizierung",
+      "no_sites": "Keine Sites gefunden",
       "no_aps": "Keine Zugangspunkte gefunden",
-      "no_new_aps": "Keine weiteren Zugangspunkte verfügbar",
-      "unknown": "Ein unbekannter Fehler ist aufgetreten"
+      "no_new_aps": "Keine zusätzlichen Zugangspunkte verfügbar",
+      "timeout": "Zeitüberschreitung bei der Anfrage. Prüfen Sie die Verbindung zum Controller.",
+      "unknown": "Unbekannter Fehler aufgetreten"
     },
     "abort": {
       "no_aps": "Keine Zugangspunkte auf diesem Controller gefunden",
-      "no_new_aps": "Keine weiteren Zugangspunkte verfügbar"
-    }
-  },
-  "entity": {
-    "switch": {
-      "led_state": {
-        "name": "LED-Status"
-      }
-    },
-    "button": {
-      "flash_led": {
-        "name": "LED blinken lassen"
-      }
+      "no_new_aps": "Keine zusätzlichen Zugangspunkte verfügbar"
     }
   }
 }
