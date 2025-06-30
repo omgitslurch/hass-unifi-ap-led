@@ -23,6 +23,7 @@
     "error": {
       "cannot_connect": "Failed to connect to UniFi controller",
       "invalid_auth": "Invalid authentication",
+      "no_sites": "No Sites found",
       "no_aps": "No access points found",
       "no_new_aps": "No additional access points available",
       "timeout": "Request timed out. Check your controller connection.",
