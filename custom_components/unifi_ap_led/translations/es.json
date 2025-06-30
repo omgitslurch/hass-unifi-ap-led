@@ -1,0 +1,37 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configuración del controlador UniFi",
+        "data": {
+          "host": "Host/IP del controlador",
+          "username": "Nombre de usuario",
+          "password": "Contraseña",
+          "port": "Puerto (por defecto: 8443)",
+          "site": "Nombre del sitio (por defecto: default)",
+          "verify_ssl": "Verificar SSL"
+        },
+        "description": "Nota: El nombre del sitio suele ser 'default', a menos que tengas varios sitios."
+      },
+      "select_ap": {
+        "title": "Seleccionar punto de acceso",
+        "data": {
+          "ap_mac": "Punto de acceso"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "No se pudo conectar al controlador UniFi",
+      "invalid_auth": "Autenticación no válida",
+      "no_sites": "No se encontraron sitios",
+      "no_aps": "No se encontraron puntos de acceso",
+      "no_new_aps": "No hay puntos de acceso adicionales disponibles",
+      "timeout": "Tiempo de espera agotado. Verifica la conexión con tu controlador.",
+      "unknown": "Ocurrió un error desconocido"
+    },
+    "abort": {
+      "no_aps": "No se encontraron puntos de acceso en este controlador",
+      "no_new_aps": "No hay puntos de acceso adicionales disponibles"
+    }
+  }
+}
