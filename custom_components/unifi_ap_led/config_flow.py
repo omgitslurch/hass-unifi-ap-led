@@ -1,11 +1,14 @@
 import voluptuous as vol
 import logging
+import aiohttp
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD
+from homeassistant.helpers import config_validation as cv
 from .const import (
     DOMAIN, CONF_SITE_ID, CONF_SITE_NAME, CONF_AP_MAC, 
-    CONF_VERIFY_SSL, CONF_PORT, DEFAULT_PORT, ERRORS
+    CONF_VERIFY_SSL, CONF_PORT, DEFAULT_PORT, ERRORS,
+    CONF_AP_MACS
 )
 from .client import UnifiAPClient
 
@@ -22,45 +25,46 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.ap_devices = []
         self.client = None
         self.selected_site = None
+        self.selected_aps = []
 
     async def async_step_user(self, user_input=None):
         """Initial controller setup step."""
         errors = {}
+        client = None
         if user_input is not None:
-            # Verify connection
-            self.client = UnifiAPClient(
-                host=user_input[CONF_HOST],
-                port=user_input.get(CONF_PORT, DEFAULT_PORT),
-                username=user_input[CONF_USERNAME],
-                password=user_input[CONF_PASSWORD],
-                verify_ssl=user_input.get(CONF_VERIFY_SSL, True)
-            )
-            
             try:
-                # Initialize SSL context
-                await self.client.create_ssl_context()
+                client = UnifiAPClient(
+                    host=user_input[CONF_HOST],
+                    port=user_input.get(CONF_PORT, DEFAULT_PORT),
+                    username=user_input[CONF_USERNAME],
+                    password=user_input[CONF_PASSWORD],
+                    verify_ssl=user_input.get(CONF_VERIFY_SSL, True)
+                )
                 
-                if await self.client.login():
-                    self.sites = await self.client.get_sites()
+                await client.create_ssl_context()
+                
+                if await client.login():
+                    self.sites = await client.get_sites()
                     self.controller_data = user_input
+                    self.client = client
                     
                     if self.sites:
                         return await self.async_step_select_site()
                     errors["base"] = ERRORS["no_sites"]
                 else:
                     errors["base"] = ERRORS["invalid_auth"]
+            except aiohttp.ClientError:
+                errors["base"] = ERRORS["cannot_connect"]
             except Exception as e:
                 _LOGGER.error("Connection error: %s", e, exc_info=True)
                 errors["base"] = ERRORS["cannot_connect"]
             finally:
-                # If we have an error, close the client properly
-                if errors and self.client:
+                if errors and client:
                     try:
-                        await self.client.close_session()
+                        await client.close_session()
                     except Exception as e:
                         _LOGGER.error("Error closing client: %s", e)
         
-        # Show form with current inputs
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
@@ -82,40 +86,28 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 (s["desc"] for s in self.sites if s["name"] == user_input[CONF_SITE_ID]), 
                 user_input[CONF_SITE_ID]
             )
+            self.controller_data[CONF_SITE_NAME] = site_name
             
-            # Get devices for selected site
             try:
+                all_devices = await self.client.get_devices(self.selected_site)
                 self.ap_devices = [
-                    d for d in await self.client.get_devices(self.selected_site)
-                    if d.get("type") == "uap"  # Only access points
+                    d for d in all_devices
+                    if d.get("type") == "uap" and d.get("mac")
                 ]
             except Exception as e:
                 _LOGGER.error("Error getting devices: %s", e, exc_info=True)
                 errors["base"] = ERRORS["cannot_connect"]
             else:
                 if self.ap_devices:
-                    return await self.async_step_select_ap()
+                    return await self.async_step_select_aps()
                 errors["base"] = ERRORS["no_aps"]
-            
-            # If we have errors, close the client
-            if errors and self.client:
-                try:
-                    await self.client.close_session()
-                except Exception as e:
-                    _LOGGER.error("Error closing client: %s", e)
         
-        # Create list of sites for selection
         site_options = {
             site["name"]: site.get("desc", site["name"])
             for site in self.sites
         }
         
         if not site_options:
-            if self.client:
-                try:
-                    await self.client.close_session()
-                except Exception as e:
-                    _LOGGER.error("Error closing client: %s", e)
             return self.async_abort(reason=ERRORS["no_sites"])
         
         return self.async_show_form(
@@ -127,40 +119,84 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={"site_count": len(site_options)}
         )
 
-    async def async_step_select_ap(self, user_input=None):
-        """Select Access Point to control."""
+    async def async_step_select_aps(self, user_input=None):
+        """Select multiple Access Points to control."""
         errors = {}
         if user_input is not None:
-            # Create entry with controller and site data
-            site_name = next(
-                (s["desc"] for s in self.sites if s["name"] == self.selected_site),
-                self.selected_site
-            )
+            self.selected_aps = user_input[CONF_AP_MACS]
+            if not self.selected_aps:
+                errors["base"] = "no_aps_selected"
+            else:
+                # Create config entries for all selected APs
+                return await self.async_step_create_entries()
+        
+        # Prepare options for multi-select
+        ap_options = {
+            device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model', 'AP')})"
+            for device in self.ap_devices
+            if device.get("mac")
+        }
+        
+        return self.async_show_form(
+            step_id="select_aps",
+            data_schema=vol.Schema({
+                vol.Required(CONF_AP_MACS): cv.multi_select(ap_options)
+            }),
+            errors=errors,
+            description_placeholders={"ap_count": len(ap_options)}
+        )
+
+    async def async_step_create_entries(self):
+        """Create config entries for selected APs."""
+        # Get site name (stored in previous step)
+        site_name = self.controller_data.get(CONF_SITE_NAME, self.selected_site)
+        created_entries = []
+        
+        for ap_mac in self.selected_aps:
+            # Find device name for selected AP
+            ap_name = f"UniFi AP {ap_mac}"
+            for device in self.ap_devices:
+                if device.get("mac") == ap_mac:
+                    ap_name = device.get("name", ap_name)
+                    break
+            
+            # Create entry data
             data = {
                 **self.controller_data,
                 CONF_SITE_ID: self.selected_site,
-                CONF_AP_MAC: user_input[CONF_AP_MAC],
+                CONF_AP_MAC: ap_mac,
                 CONF_SITE_NAME: site_name
             }
             
-            # Set unique ID to prevent duplicate entries
-            unique_id = f"{self.selected_site}_{user_input[CONF_AP_MAC]}"
+            # Set unique ID
+            unique_id = f"{self.selected_site}_{ap_mac}"
             await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_configured()
             
-            # Close client session before finishing
-            if self.client:
-                try:
-                    await self.client.close_session()
-                except Exception as e:
-                    _LOGGER.error("Error closing client: %s", e)
-                    
-            return self.async_create_entry(
-                title=f"UniFi AP {user_input[CONF_AP_MAC]}",
-                data=data
-            )
+            # Create title
+            title = f"UniFi Controller ({self.controller_data[CONF_HOST]}) - {site_name}"
+            
+            # Create entry
+            entry = self.async_create_entry(title=title, data=data)
+            created_entries.append(entry)
         
-        # Create list of APs for selection
+        # Close client session
+        if self.client:
+            try:
+                await self.client.close_session()
+            except Exception as e:
+                _LOGGER.error("Error closing client: %s", e)
+        
+        # Return the last created entry (HA handles multiple creates)
+        return created_entries[-1] if created_entries else self.async_abort(reason="no_aps_selected")
+
+    async def async_step_select_ap(self, user_input=None):
+        """Select single Access Point to control (backward compatibility)."""
+        # This step is preserved for backward compatibility
+        if user_input is not None:
+            self.selected_aps = [user_input[CONF_AP_MAC]]
+            return await self.async_step_create_entries()
+        
         ap_options = {
             device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model', 'AP')})"
             for device in self.ap_devices
@@ -168,11 +204,6 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }
         
         if not ap_options:
-            if self.client:
-                try:
-                    await self.client.close_session()
-                except Exception as e:
-                    _LOGGER.error("Error closing client: %s", e)
             return self.async_abort(reason=ERRORS["no_aps"])
         
         return self.async_show_form(
@@ -180,7 +211,6 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({
                 vol.Required(CONF_AP_MAC): vol.In(ap_options)
             }),
-            errors=errors,
             description_placeholders={"ap_count": len(ap_options)}
         )
 
@@ -208,7 +238,6 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None):
         """Manage additional APs."""
-        # Create a new client instance
         data = self.config_entry.data
         self.client = UnifiAPClient(
             host=data[CONF_HOST],
@@ -219,23 +248,20 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         )
         
         try:
-            # Initialize SSL context
             await self.client.create_ssl_context()
             
             if not await self.client.login():
-                if self.client:
-                    await self.client.close_session()
                 return self.async_abort(reason=ERRORS["cannot_connect"])
             
-            # Get devices for the same site
-            self.ap_devices = await self.client.get_devices(data[CONF_SITE_ID])
+            all_devices = await self.client.get_devices(data[CONF_SITE_ID])
+            self.ap_devices = [
+                d for d in all_devices
+                if d.get("type") == "uap" and d.get("mac")
+            ]
         except Exception as e:
             _LOGGER.error("Error fetching devices: %s", e, exc_info=True)
-            if self.client:
-                await self.client.close_session()
             return self.async_abort(reason=ERRORS["cannot_connect"])
         
-        # Filter out already configured APs
         configured_aps = {
             entry.data[CONF_AP_MAC]
             for entry in self.hass.config_entries.async_entries(DOMAIN)
@@ -249,8 +275,6 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         }
         
         if not ap_options:
-            if self.client:
-                await self.client.close_session()
             return self.async_abort(reason=ERRORS["no_new_aps"])
         
         return await self.async_step_add_ap()
@@ -259,20 +283,26 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         """Add additional AP."""
         errors = {}
         if user_input is not None:
-            # Create new config entry for this AP
             data = {
                 **self.config_entry.data,
                 CONF_AP_MAC: user_input[CONF_AP_MAC]
             }
             
-            # Close client session
+            ap_name = f"UniFi AP {user_input[CONF_AP_MAC]}"
+            for device in self.ap_devices:
+                if device.get("mac") == user_input[CONF_AP_MAC]:
+                    ap_name = device.get("name", ap_name)
+                    break
+            
             if self.client:
                 await self.client.close_session()
                 
-            # Create as a new config entry
             unique_id = f"{data[CONF_SITE_ID]}_{user_input[CONF_AP_MAC]}"
+            site_name = data.get(CONF_SITE_NAME, data[CONF_SITE_ID])
+            title = f"UniFi Controller ({data[CONF_HOST]}) - {site_name}"
+            
             return self.async_create_entry(
-                title="",
+                title=title,
                 data={"unique_id": unique_id, "data": data}
             )
         
