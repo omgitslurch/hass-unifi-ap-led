@@ -1,9 +1,10 @@
 import logging
+import asyncio
 from homeassistant.components.button import ButtonEntity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from .const import DOMAIN, CONF_AP_MAC, CONF_SITE_NAME
+from .const import DOMAIN, CONF_AP_MAC
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -14,56 +15,68 @@ async def async_setup_entry(
 ):
     """Set up the flash button."""
     entry_data = hass.data[DOMAIN][entry.entry_id]
-    client = entry_data["client"]
-    site_id = entry_data["site_id"]
+    coordinator = entry_data["coordinator"]
     ap_mac = entry.data[CONF_AP_MAC]
-    site_name = entry.data.get(CONF_SITE_NAME, "UniFi Site")
     
-    async_add_entities([UnifiLedFlashButton(client, site_id, ap_mac, site_name)])
+    # Get device from coordinator
+    device = coordinator.get_device(ap_mac)
+    if not device:
+        _LOGGER.error("Device %s not found in coordinator data", ap_mac)
+        return
+    
+    async_add_entities([UnifiLedFlashButton(coordinator, ap_mac)])
 
 class UnifiLedFlashButton(ButtonEntity):
-    """Representation of a UniFi AP LED flash button."""
+    """Button to flash the AP LED for 2 minutes."""
     
     _attr_has_entity_name = True
     _attr_name = "Flash LED"
-    _attr_device_class = "restart"
+    _attr_icon = "mdi:flash"
     
-    def __init__(self, client, site_id, ap_mac, site_name):
-        self._client = client
-        self._site_id = site_id
+    def __init__(self, coordinator, ap_mac):
+        self.coordinator = coordinator
         self._ap_mac = ap_mac
-        self._site_name = site_name
-        self._attr_unique_id = f"unifi_flash_{site_id}_{ap_mac}"
-        self._stop_task = None
+        self._attr_unique_id = f"unifi_flash_{ap_mac}"
+        self._flash_task = None
 
     async def async_press(self) -> None:
-        """Flash the AP LED and schedule auto-stop"""
-        # Cancel any existing stop task
-        if self._stop_task and not self._stop_task.done():
-            self._stop_task.cancel()
-            self._stop_task = None
+        """Handle the button press."""
+        # Cancel any existing task (if button is pressed again)
+        if self._flash_task:
+            self._flash_task.cancel()
             
         try:
-            stop_task = await self._client.flash_led(self._site_id, self._ap_mac)
-            if not stop_task:
-                _LOGGER.error("Failed to flash LED for %s", self._ap_mac)
-            else:
-                self._stop_task = stop_task
+            # Start flashing
+            success = await self.coordinator.client.flash_led(
+                self.coordinator.site_id, self._ap_mac
+            )
+            if not success:
+                _LOGGER.error("Failed to start flash for %s", self._ap_mac)
+                return
+                
+            _LOGGER.info("Started flashing for %s", self._ap_mac)
+            
+            # Schedule auto-stop after 2 minutes
+            self._flash_task = asyncio.create_task(self._auto_stop())
         except Exception as e:
-            _LOGGER.error("Error flashing LED: %s", e, exc_info=True)
+            _LOGGER.error("Error starting flash: %s", e, exc_info=True)
 
-    async def async_will_remove_from_hass(self):
-        """Cancel stop task when entity is removed"""
-        if self._stop_task and not self._stop_task.done():
-            self._stop_task.cancel()
-            self._stop_task = None
+    async def _auto_stop(self):
+        """Automatically stop flashing after 2 minutes"""
+        try:
+            await asyncio.sleep(120)
+            await self.coordinator.client.stop_flash_led(
+                self.coordinator.site_id, self._ap_mac
+            )
+            _LOGGER.info("Auto-stopped flash for %s", self._ap_mac)
+        except Exception as e:
+            _LOGGER.error("Error during auto-stop: %s", e, exc_info=True)
+        finally:
+            self._flash_task = None
 
     @property
     def device_info(self):
-        """Return device info for parent device."""
+        """Return device info"""
         return {
-            "identifiers": {(DOMAIN, self._ap_mac)},
-            "name": f"UniFi AP {self._ap_mac}",
-            "manufacturer": "Ubiquiti",
-            "via_device": (DOMAIN, f"{self._client.host}-{self._site_name}")
+            "identifiers": {(DOMAIN, self._ap_mac)}
         }
