@@ -1,5 +1,4 @@
 import logging
-import asyncio
 from homeassistant.components.light import LightEntity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
@@ -15,150 +14,128 @@ async def async_setup_entry(
 ):
     """Set up the LED light."""
     entry_data = hass.data[DOMAIN][entry.entry_id]
-    client = entry_data["client"]
-    site_id = entry_data["site_id"]
+    coordinator = entry_data["coordinator"]
     ap_mac = entry.data[CONF_AP_MAC]
     site_name = entry.data.get(CONF_SITE_NAME, "UniFi Site")
     
-    async_add_entities([UnifiLedLight(client, site_id, ap_mac, site_name)])
+    # Get device from coordinator
+    device = coordinator.get_device(ap_mac)
+    if not device:
+        _LOGGER.error("Device %s not found in coordinator data", ap_mac)
+        return
+    
+    async_add_entities([UnifiLedLight(coordinator, device, site_name)])
 
 class UnifiLedLight(LightEntity):
     """Representation of a UniFi AP LED control light."""
     
     _attr_has_entity_name = True
     _attr_name = "LED"
-    _attr_icon = "mdi:led-outline"  # Light-specific icon
+    _attr_icon = "mdi:led-outline"
     
-    def __init__(self, client, site_id, ap_mac, site_name):
-        self._client = client
-        self._site_id = site_id
-        self._ap_mac = ap_mac
+    def __init__(self, coordinator, device, site_name):
+        self.coordinator = coordinator
+        self.device = device
+        self._ap_mac = device["mac"]
         self._site_name = site_name
+        self._attr_unique_id = f"unifi_led_{self._ap_mac}"
+        self._attr_available = True
         self._state = None
-        self._device_id = None
-        self._attr_unique_id = f"unifi_led_{site_id}_{ap_mac}"  # Same as old switch
-        self._attr_available = False
         self._last_command_time = 0
-        self._command_pending = False
 
-    async def async_turn_on(self, **kwargs):
-        """Turn the LED on with retry logic."""
-        if not self._device_id:
-            _LOGGER.error("Device ID unknown for %s", self._ap_mac)
-            return
-            
-        self._command_pending = True
-        self.async_write_ha_state()
-        
-        for attempt in range(3):
-            try:
-                success = await self._client.set_led_state(
-                    self._site_id, self._device_id, True
-                )
-                if success:
-                    self._state = True
-                    self._command_pending = False
-                    self._last_command_time = asyncio.get_event_loop().time()
-                    self.async_write_ha_state()
-                    self.hass.async_create_task(self.async_update_ha_state(force_refresh=True))
-                    return
-                else:
-                    _LOGGER.warning("LED on command failed (attempt %d/%d)", attempt+1, 3)
-            except Exception as e:
-                _LOGGER.error("Error turning LED on: %s", e, exc_info=True)
-            
-            await asyncio.sleep(1 + attempt)
-        
-        _LOGGER.error("Failed to turn LED on for %s after 3 attempts", self._ap_mac)
-        self._command_pending = False
-        self.async_write_ha_state()
-
-    async def async_turn_off(self, **kwargs):
-        """Turn the LED off with retry logic."""
-        if not self._device_id:
-            _LOGGER.error("Device ID unknown for %s", self._ap_mac)
-            return
-            
-        self._command_pending = True
-        self.async_write_ha_state()
-        
-        for attempt in range(3):
-            try:
-                success = await self._client.set_led_state(
-                    self._site_id, self._device_id, False
-                )
-                if success:
-                    self._state = False
-                    self._command_pending = False
-                    self._last_command_time = asyncio.get_event_loop().time()
-                    self.async_write_ha_state()
-                    self.hass.async_create_task(self.async_update_ha_state(force_refresh=True))
-                    return
-                else:
-                    _LOGGER.warning("LED off command failed (attempt %d/%d)", attempt+1, 3)
-            except Exception as e:
-                _LOGGER.error("Error turning LED off: %s", e, exc_info=True)
-            
-            await asyncio.sleep(1 + attempt)
-        
-        _LOGGER.error("Failed to turn LED off for %s after 3 attempts", self._ap_mac)
-        self._command_pending = False
-        self.async_write_ha_state()
+    async def async_added_to_hass(self):
+        """Subscribe to updates"""
+        self.async_on_remove(
+            self.coordinator.async_add_listener(
+                self.async_write_ha_state
+            )
+        )
+        # Initial update
+        await self.async_update_ha_state(True)
 
     async def async_update(self):
         """Update LED state from controller."""
-        current_time = asyncio.get_event_loop().time()
-        
-        if current_time - self._last_command_time < 5:
-            return
-            
         try:
-            devices = await self._client.get_devices(self._site_id)
-            if devices:
-                device_found = False
-                for device in devices:
-                    if device.get("mac") == self._ap_mac:
-                        self._device_id = device.get("_id")
-                        led_override = device.get("led_override")
-                        if led_override in ["on", True]:
-                            self._state = True
-                        elif led_override in ["off", False]:
-                            self._state = False
-                        else:
-                            self._state = True
-                        self._attr_available = True
-                        device_found = True
-                        break
-                if not device_found:
-                    _LOGGER.warning("Device %s not found in site %s", self._ap_mac, self._site_id)
-                    self._attr_available = False
-                    self._device_id = None
+            # Skip update if we recently sent a command
+            if hasattr(self, '_last_command_time'):
+                current_time = self.hass.loop.time()
+                if current_time - self._last_command_time < 5:
+                    return
+            
+            device = self.coordinator.get_device(self._ap_mac)
+            if device:
+                led_override = device.get("led_override")
+                self._state = led_override in ["on", True]
+                self._attr_available = True
             else:
-                _LOGGER.warning("No devices found for site %s", self._site_id)
                 self._attr_available = False
-                self._device_id = None
         except Exception as e:
             _LOGGER.error("Error updating state: %s", e, exc_info=True)
             self._attr_available = False
-            self._device_id = None
 
     @property
     def is_on(self):
         return self._state
         
-    @property
-    def extra_state_attributes(self):
-        return {
-            "device_id": self._device_id,
-            "command_pending": self._command_pending,
-            "last_command_time": self._last_command_time
-        }
+    async def async_turn_on(self, **kwargs):
+        """Turn the LED on"""
+        if not self.device.get("_id"):
+            _LOGGER.error("Device ID unknown for %s", self._ap_mac)
+            return
+            
+        # Optimistic update
+        self._state = True
+        self._last_command_time = self.hass.loop.time()
+        self.async_write_ha_state()
+        
+        success = await self.coordinator.client.set_led_state(
+            self.coordinator.site_id, 
+            self.device["_id"], 
+            True
+        )
+        if success:
+            # Request refresh to confirm
+            await self.coordinator.async_request_refresh()
+        else:
+            _LOGGER.error("Failed to turn on LED for %s", self._ap_mac)
+            # Revert on failure
+            self._state = False
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs):
+        """Turn the LED off"""
+        if not self.device.get("_id"):
+            _LOGGER.error("Device ID unknown for %s", self._ap_mac)
+            return
+            
+        # Optimistic update
+        self._state = False
+        self._last_command_time = self.hass.loop.time()
+        self.async_write_ha_state()
+        
+        success = await self.coordinator.client.set_led_state(
+            self.coordinator.site_id, 
+            self.device["_id"], 
+            False
+        )
+        if success:
+            # Request refresh to confirm
+            await self.coordinator.async_request_refresh()
+        else:
+            _LOGGER.error("Failed to turn off LED for %s", self._ap_mac)
+            # Revert on failure
+            self._state = True
+            self.async_write_ha_state()
 
     @property
     def device_info(self):
+        """Return device info with proper model detection"""
+        model = self.device.get("model", "Unknown")
+        name = self.device.get("name", f"UniFi AP {self._ap_mac}")
         return {
             "identifiers": {(DOMAIN, self._ap_mac)},
-            "name": f"UniFi AP {self._ap_mac}",
+            "name": name,
             "manufacturer": "Ubiquiti",
-            "via_device": (DOMAIN, f"{self._client.host}-{self._site_name}")
+            "model": model,
+            "sw_version": self.device.get("version", "Unknown")
         }
