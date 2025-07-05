@@ -71,7 +71,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         controller_version = client.controller_version
         
         # Get site display name (use ID if name not available)
-        site_name_display = data.get(CONF_SITE_NAME) or data[CONF_SITE_ID]
+        site_name_display = data.get(CONF_SITE_NAME, data[CONF_SITE_ID])
         
         # Create controller device
         controller_identifier = f"{data[CONF_HOST]}-{data[CONF_SITE_ID]}"
