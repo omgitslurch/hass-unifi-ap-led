@@ -2,36 +2,62 @@
   "config": {
     "step": {
       "user": {
-        "title": "UniFi-Controller-Einrichtung",
+        "title": "UniFi Controller Einrichtung",
         "data": {
-          "host": "Controller-Host/IP",
+          "host": "Controller Host/IP",
           "username": "Benutzername",
           "password": "Passwort",
           "port": "Port (Standard: 8443)",
-          "site": "Site-Name (Standard: default)",
           "verify_ssl": "SSL überprüfen"
         },
-        "description": "Hinweis: Der Site-Name ist normalerweise 'default', es sei denn, Sie haben mehrere Sites."
+        "description": "Hinweis: Der Standortname ist normalerweise 'default', es sei denn, Sie haben mehrere Standorte."
+      },
+      "select_site": {
+        "title": "Standort auswählen",
+        "data": {
+          "site_id": "Standort"
+        },
+        "description": "{site_count} Standort(e) gefunden. Wählen Sie den Standort mit Ihren Access Points."
+      },
+      "select_aps": {
+        "title": "Access Points auswählen",
+        "data": {
+          "ap_macs": "Access Points"
+        },
+        "description": "{ap_count} Access Point(s) gefunden. Wählen Sie aus, welche Sie steuern möchten."
       },
       "select_ap": {
-        "title": "Zugangspunkt auswählen",
+        "title": "Access Point auswählen",
         "data": {
-          "ap_mac": "Zugangspunkt"
-        }
+          "ap_mac": "Access Point"
+        },
+        "description": "{ap_count} Access Point(s) gefunden. Wählen Sie aus, welchen Sie steuern möchten."
+      },
+      "add_ap": {
+        "title": "Access Point hinzufügen",
+        "data": {
+          "ap_mac": "Access Point"
+        },
+        "description": "Wählen Sie einen zusätzlichen Access Point zum Steuern aus."
       }
     },
     "error": {
-      "cannot_connect": "Verbindung zum UniFi-Controller fehlgeschlagen",
+      "cannot_connect": "Verbindung zum UniFi Controller fehlgeschlagen",
       "invalid_auth": "Ungültige Authentifizierung",
-      "no_sites": "Keine Sites gefunden",
-      "no_aps": "Keine Zugangspunkte gefunden",
-      "no_new_aps": "Keine zusätzlichen Zugangspunkte verfügbar",
-      "timeout": "Zeitüberschreitung bei der Anfrage. Prüfen Sie die Verbindung zum Controller.",
-      "unknown": "Unbekannter Fehler aufgetreten"
+      "no_sites": "Keine Standorte auf diesem Controller gefunden",
+      "no_aps": "Keine Access Points an diesem Standort gefunden",
+      "no_new_aps": "Keine zusätzlichen Access Points verfügbar",
+      "no_aps_selected": "Bitte wählen Sie mindestens einen Access Point aus",
+      "timeout": "Zeitüberschreitung der Anfrage. Überprüfen Sie die Verbindung zum Controller.",
+      "connection_error": "Netzwerkverbindungsfehler aufgetreten",
+      "unknown": "Ein unbekannter Fehler ist aufgetreten"
     },
     "abort": {
-      "no_aps": "Keine Zugangspunkte auf diesem Controller gefunden",
-      "no_new_aps": "Keine zusätzlichen Zugangspunkte verfügbar"
+      "no_aps": "Keine Access Points auf diesem Controller gefunden",
+      "no_new_aps": "Keine zusätzlichen Access Points verfügbar"
+    },
+    "progress": {
+      "creating_entries": "Erstelle Konfigurationseinträge"
     }
   }
 }
