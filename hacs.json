@@ -3,5 +3,5 @@
   "render_readme": true,
   "description": "Control UniFi AP LEDs from Home Assistant",
   "domains": ["unifi_ap_led"],
-  "country": "global"
+  "country": "ALL"
 }
