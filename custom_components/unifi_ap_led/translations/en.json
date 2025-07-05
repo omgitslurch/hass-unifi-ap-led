@@ -8,30 +8,56 @@
           "username": "Username",
           "password": "Password",
           "port": "Port (default: 8443)",
-          "site": "Site Name (default: default)",
           "verify_ssl": "Verify SSL"
         },
         "description": "Note: Site name is usually 'default' unless you have multiple sites."
+      },
+      "select_site": {
+        "title": "Select Site",
+        "data": {
+          "site_id": "Site"
+        },
+        "description": "Found {site_count} site(s). Select the site containing your access points."
+      },
+      "select_aps": {
+        "title": "Select Access Points",
+        "data": {
+          "ap_macs": "Access Points"
+        },
+        "description": "Found {ap_count} access point(s). Select which ones you want to control."
       },
       "select_ap": {
         "title": "Select Access Point",
         "data": {
           "ap_mac": "Access Point"
-        }
+        },
+        "description": "Found {ap_count} access point(s). Select which one you want to control."
+      },
+      "add_ap": {
+        "title": "Add Access Point",
+        "data": {
+          "ap_mac": "Access Point"
+        },
+        "description": "Select an additional access point to control."
       }
     },
     "error": {
       "cannot_connect": "Failed to connect to UniFi controller",
       "invalid_auth": "Invalid authentication",
-      "no_sites": "No Sites found",
-      "no_aps": "No access points found",
+      "no_sites": "No sites found on this controller",
+      "no_aps": "No access points found in this site",
       "no_new_aps": "No additional access points available",
+      "no_aps_selected": "Please select at least one access point",
       "timeout": "Request timed out. Check your controller connection.",
+      "connection_error": "Network connection error occurred",
       "unknown": "Unknown error occurred"
     },
     "abort": {
       "no_aps": "No access points found on this controller",
       "no_new_aps": "No additional access points available"
+    },
+    "progress": {
+      "creating_entries": "Creating configuration entries"
     }
   }
 }
