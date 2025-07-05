@@ -5,33 +5,59 @@
         "title": "Configuración del controlador UniFi",
         "data": {
           "host": "Host/IP del controlador",
-          "username": "Nombre de usuario",
+          "username": "Usuario",
           "password": "Contraseña",
-          "port": "Puerto (por defecto: 8443)",
-          "site": "Nombre del sitio (por defecto: default)",
+          "port": "Puerto (predeterminado: 8443)",
           "verify_ssl": "Verificar SSL"
         },
-        "description": "Nota: El nombre del sitio suele ser 'default', a menos que tengas varios sitios."
+        "description": "Nota: El nombre del sitio suele ser 'default' a menos que tenga varios sitios."
+      },
+      "select_site": {
+        "title": "Seleccionar sitio",
+        "data": {
+          "site_id": "Sitio"
+        },
+        "description": "Se encontró {site_count} sitio(s). Seleccione el sitio que contiene sus puntos de acceso."
+      },
+      "select_aps": {
+        "title": "Seleccionar puntos de acceso",
+        "data": {
+          "ap_macs": "Puntos de acceso"
+        },
+        "description": "Se encontró {ap_count} punto(s) de acceso. Seleccione cuáles desea controlar."
       },
       "select_ap": {
         "title": "Seleccionar punto de acceso",
         "data": {
           "ap_mac": "Punto de acceso"
-        }
+        },
+        "description": "Se encontró {ap_count} punto(s) de acceso. Seleccione cuál desea controlar."
+      },
+      "add_ap": {
+        "title": "Agregar punto de acceso",
+        "data": {
+          "ap_mac": "Punto de acceso"
+        },
+        "description": "Seleccione un punto de acceso adicional para controlar."
       }
     },
     "error": {
-      "cannot_connect": "No se pudo conectar al controlador UniFi",
-      "invalid_auth": "Autenticación no válida",
-      "no_sites": "No se encontraron sitios",
-      "no_aps": "No se encontraron puntos de acceso",
+      "cannot_connect": "Error al conectar al controlador UniFi",
+      "invalid_auth": "Autenticación inválida",
+      "no_sites": "No se encontraron sitios en este controlador",
+      "no_aps": "No se encontraron puntos de acceso en este sitio",
       "no_new_aps": "No hay puntos de acceso adicionales disponibles",
-      "timeout": "Tiempo de espera agotado. Verifica la conexión con tu controlador.",
+      "no_aps_selected": "Por favor seleccione al menos un punto de acceso",
+      "timeout": "Tiempo de espera agotado. Verifique su conexión al controlador.",
+      "connection_error": "Ocurrió un error de conexión de red",
       "unknown": "Ocurrió un error desconocido"
     },
     "abort": {
       "no_aps": "No se encontraron puntos de acceso en este controlador",
       "no_new_aps": "No hay puntos de acceso adicionales disponibles"
+    },
+    "progress": {
+      "creating_entries": "Creando entradas de configuración"
     }
   }
 }
