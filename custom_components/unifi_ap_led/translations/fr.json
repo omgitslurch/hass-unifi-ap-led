@@ -7,31 +7,57 @@
           "host": "Hôte/IP du contrôleur",
           "username": "Nom d'utilisateur",
           "password": "Mot de passe",
-          "port": "Port (par défaut : 8443)",
-          "site": "Nom du site (par défaut : default)",
-          "verify_ssl": "Vérifier le SSL"
+          "port": "Port (défaut : 8443)",
+          "verify_ssl": "Vérifier SSL"
         },
-        "description": "Remarque : le nom du site est généralement 'default', sauf si vous avez plusieurs sites."
+        "description": "Note : Le nom du site est généralement 'default' sauf si vous avez plusieurs sites."
+      },
+      "select_site": {
+        "title": "Sélectionnez le site",
+        "data": {
+          "site_id": "Site"
+        },
+        "description": "{site_count} site(s) trouvé(s). Sélectionnez le site contenant vos points d'accès."
+      },
+      "select_aps": {
+        "title": "Sélectionnez les points d'accès",
+        "data": {
+          "ap_macs": "Points d'accès"
+        },
+        "description": "{ap_count} point(s) d'accès trouvé(s). Sélectionnez ceux que vous souhaitez contrôler."
       },
       "select_ap": {
-        "title": "Sélectionner un point d'accès",
+        "title": "Sélectionnez le point d'accès",
         "data": {
           "ap_mac": "Point d'accès"
-        }
+        },
+        "description": "{ap_count} point(s) d'accès trouvé(s). Sélectionnez celui que vous souhaitez contrôler."
+      },
+      "add_ap": {
+        "title": "Ajouter un point d'accès",
+        "data": {
+          "ap_mac": "Point d'accès"
+        },
+        "description": "Sélectionnez un point d'accès supplémentaire à contrôler."
       }
     },
     "error": {
       "cannot_connect": "Échec de la connexion au contrôleur UniFi",
       "invalid_auth": "Authentification invalide",
-      "no_sites": "Aucun site trouvé",
-      "no_aps": "Aucun point d'accès trouvé",
+      "no_sites": "Aucun site trouvé sur ce contrôleur",
+      "no_aps": "Aucun point d'accès trouvé sur ce site",
       "no_new_aps": "Aucun point d'accès supplémentaire disponible",
-      "timeout": "Délai d'attente dépassé. Vérifiez la connexion à votre contrôleur.",
+      "no_aps_selected": "Veuillez sélectionner au moins un point d'accès",
+      "timeout": "Délai de requête dépassé. Vérifiez votre connexion au contrôleur.",
+      "connection_error": "Erreur de connexion réseau",
       "unknown": "Une erreur inconnue est survenue"
     },
     "abort": {
       "no_aps": "Aucun point d'accès trouvé sur ce contrôleur",
       "no_new_aps": "Aucun point d'accès supplémentaire disponible"
+    },
+    "progress": {
+      "creating_entries": "Création des entrées de configuration"
     }
   }
 }
