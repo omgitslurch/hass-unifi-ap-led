@@ -158,20 +158,54 @@ class UnifiAPClient:
         try:
             if not await self._ensure_authenticated():
                 return "Unknown"
+            
+            # Try different endpoints to get version information
+            endpoints = [
+                "status",
+                "api/system",
+                "api/self"
+            ]
+            
+            for endpoint in endpoints:
+                url = self._prefix_url(endpoint)
+                resp, data = await self._perform_request("GET", url)
                 
-            endpoint = "status"
-            url = self._prefix_url(endpoint)
-            
-            resp, data = await self._perform_request("GET", url)
-            
-            if resp.status == 200:
-                if isinstance(data, dict) and "data" in data:
-                    if isinstance(data["data"], list) and data["data"]:
-                        self.controller_version = data["data"][0].get("version", "Unknown")
-                    elif isinstance(data["data"], dict):
-                        self.controller_version = data["data"].get("version", "Unknown")
-            return self.controller_version
-        except Exception:
+                if resp.status == 200:
+                    # Handle different response structures
+                    if isinstance(data, dict):
+                        # First check meta section
+                        meta = data.get("meta", {})
+                        if isinstance(meta, dict):
+                            version = meta.get("server_version") or meta.get("version")
+                            if version:
+                                self.controller_version = version
+                                return version
+                        
+                        # Then check data section
+                        data_section = data.get("data")
+                        if isinstance(data_section, list) and data_section:
+                            first_item = data_section[0]
+                            if isinstance(first_item, dict):
+                                version = first_item.get("version") or first_item.get("server_version")
+                                if version:
+                                    self.controller_version = version
+                                    return version
+                        elif isinstance(data_section, dict):
+                            version = data_section.get("version") or data_section.get("server_version")
+                            if version:
+                                self.controller_version = version
+                                return version
+                    
+                    # Try direct version field
+                    if isinstance(data, dict):
+                        version = data.get("version") or data.get("server_version")
+                        if version:
+                            self.controller_version = version
+                            return version
+                        
+            return "Unknown"
+        except Exception as e:
+            self.log.error(f"Error getting controller version: {e}")
             return "Unknown"
 
     async def _ensure_authenticated(self):
