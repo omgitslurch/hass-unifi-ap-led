@@ -1,5 +1,7 @@
 # UniFi AP LED Control for Home Assistant
-![GitHub Release](https://img.shields.io/github/v/release/omgitslurch/hass-unifi-ap-led)
+
+![GitHub Release](https://img.shields.io/github/v/release/omgitslurch/hass-unifi-ap-led) ![GitHub top language](https://img.shields.io/github/languages/top/omgitslurch/hass-unifi-ap-led)
+ ![GitHub Repo stars](https://img.shields.io/github/stars/omgitslurch/hass-unifi-ap-led) [!["Buy the author A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/omgitslurch)
 
 This integration allows Home Assistant to control the **status LEDs** on UniFi Access Points (APs), including:
 
