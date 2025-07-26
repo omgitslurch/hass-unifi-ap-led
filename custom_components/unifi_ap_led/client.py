@@ -27,35 +27,46 @@ class UnifiAPClient:
         """Create SSL context"""
         if self.session and not self.session.closed:
             await self.session.close()
-            
-        if not self.verify_ssl:
-            self.ssl_context = ssl.create_default_context()
-            self.ssl_context.check_hostname = False
-            self.ssl_context.verify_mode = ssl.CERT_NONE
-        else:
-            self.ssl_context = ssl.create_default_context()
-            
+
+        def _make_context():
+            context = ssl.create_default_context()
+            if not self.verify_ssl:
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
+            return context
+
+        loop = asyncio.get_running_loop()
+        self.ssl_context = await loop.run_in_executor(None, _make_context)
+
         self.session = aiohttp.ClientSession()
 
     async def _detect_controller_mode(self):
-        """Detect if controller is UDM"""
+        """Detect if controller is UDM/Cloud Gateway Ultra"""
         try:
-            # Check both possible endpoints
+            # Try base path (self-hosted or legacy controller)
             resp, _ = await self._perform_request("GET", "/", allow_redirects=False)
             if resp.status == 200:
-                self.is_udm = True
-                return
-                
-            resp, _ = await self._perform_request("GET", "/manage", allow_redirects=False)
-            if resp.status == 200 and "unifi" in (await resp.text()).lower():
                 self.is_udm = False
+                self.log.debug("Controller responded at root path. Not UDM/CGU.")
                 return
-        except Exception:
-            pass
+
+            # Try UDM/CGU path (/proxy/network/)
+            test_url = "/proxy/network/"
+            full_url = f"https://{self.host}:{self.port}{test_url}"
+            async with asyncio.timeout(10):
+                async with self.session.get(full_url, ssl=self.ssl_context, allow_redirects=False) as resp:
+                    if resp.status == 200 or resp.status in (401, 403):
+                        self.is_udm = True
+                        self.log.debug("Detected UniFi OS device (UDM or CGU) using /proxy/network/")
+                        return
+        except Exception as e:
+            self.log.warning(f"Controller detection failed: {e}")
+    
         self.is_udm = False
+        self.log.debug("Defaulting to non-UDM path")
 
     def _prefix_url(self, endpoint: str) -> str:
-        """Apply UDM-specific URL prefix if needed"""
+        """Apply UDM/CGU-specific URL prefix if needed"""
         if self.is_udm:
             return f"/proxy/network/{endpoint.lstrip('/')}"
         return f"/{endpoint.lstrip('/')}"
@@ -242,7 +253,7 @@ class UnifiAPClient:
             
             if resp.status == 200:
                 if isinstance(data, dict) and "data" in data:
-                    return data["data"]
+                    return [d for d in data["data"] if d.get("type") == "uap"]
             return []
         except Exception:
             return []
