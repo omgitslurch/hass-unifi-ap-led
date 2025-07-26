@@ -29,10 +29,13 @@ class UnifiAPCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(f"Error communicating with UniFi controller: {e}") from e
 
     def get_device(self, mac_address: str) -> dict:
-        """Get device by MAC address"""
-        if not self.data:
-            return None
+        """Get device by MAC address (case-insensitive)"""
+        target_mac = mac_address.lower()
         return next(
-            (d for d in self.data if d.get("mac", "").lower() == mac_address.lower()),
+            (d for d in self.data if d.get("mac", "").lower() == target_mac),
             None
         )
+
+    def get_aps(self) -> list[dict]:
+        """Return all AP devices"""
+        return [d for d in self.data if d.get("type") == "uap"]
