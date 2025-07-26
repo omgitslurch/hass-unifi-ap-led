@@ -132,7 +132,7 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         # Prepare options for multi-select
         ap_options = {
-            device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model', 'AP')})"
+            device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model_display') or device.get('model', 'AP')})"
             for device in self.ap_devices
             if device.get("mac")
         }
@@ -269,7 +269,7 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         }
         
         ap_options = {
-            device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model', 'AP')})"
+            device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model_display') or device.get('model', 'AP')})"
             for device in self.ap_devices
             if device.get("mac") and device["mac"] not in configured_aps
         }
@@ -310,7 +310,7 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
             step_id="add_ap",
             data_schema=vol.Schema({
                 vol.Required(CONF_AP_MAC): vol.In({
-                    device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model', 'AP')})"
+                    device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model_display') or device.get('model', 'AP')})"
                     for device in self.ap_devices
                 })
             }),
