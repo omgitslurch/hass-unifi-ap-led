@@ -4,7 +4,7 @@ from homeassistant.components.button import ButtonEntity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from .const import DOMAIN, CONF_AP_MAC
+from .const import DOMAIN, CONF_AP_MAC, CONF_AP_MACS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -13,18 +13,28 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback
 ):
-    """Set up the flash button."""
+    """Set up flash LED buttons for each AP."""
     entry_data = hass.data[DOMAIN][entry.entry_id]
     coordinator = entry_data["coordinator"]
-    ap_mac = entry.data[CONF_AP_MAC]
-    
-    # Get device from coordinator
-    device = coordinator.get_device(ap_mac)
-    if not device:
-        _LOGGER.error("Device %s not found in coordinator data", ap_mac)
+
+    ap_macs = entry.data.get(CONF_AP_MACS)
+    if not ap_macs:
+        # Fallback for legacy entries
+        ap_macs = [entry.data.get(CONF_AP_MAC)]
+
+    entities = []
+    for ap_mac in ap_macs:
+        device = coordinator.get_device(ap_mac)
+        if not device:
+            _LOGGER.warning("Device %s not found in coordinator", ap_mac)
+            continue
+        entities.append(UnifiLedFlashButton(coordinator, ap_mac))
+
+    if not entities:
+        _LOGGER.error("No valid APs found to create flash buttons")
         return
-    
-    async_add_entities([UnifiLedFlashButton(coordinator, ap_mac)])
+
+    async_add_entities(entities)
 
 class UnifiLedFlashButton(ButtonEntity):
     """Button to flash the AP LED for 2 minutes."""
@@ -41,22 +51,18 @@ class UnifiLedFlashButton(ButtonEntity):
 
     async def async_press(self) -> None:
         """Handle the button press."""
-        # Cancel any existing task (if button is pressed again)
         if self._flash_task:
             self._flash_task.cancel()
             
         try:
-            # Start flashing
             success = await self.coordinator.client.flash_led(
                 self.coordinator.site_id, self._ap_mac
             )
             if not success:
                 _LOGGER.error("Failed to start flash for %s", self._ap_mac)
                 return
-                
+
             _LOGGER.info("Started flashing for %s", self._ap_mac)
-            
-            # Schedule auto-stop after 2 minutes
             self._flash_task = asyncio.create_task(self._auto_stop())
         except Exception as e:
             _LOGGER.error("Error starting flash: %s", e, exc_info=True)
@@ -76,7 +82,7 @@ class UnifiLedFlashButton(ButtonEntity):
 
     @property
     def device_info(self):
-        """Return device info"""
+        """Return device info for the AP."""
         return {
-            "identifiers": {(DOMAIN, self._ap_mac)}
+            "identifiers": {(DOMAIN, self._ap_mac)},
         }
