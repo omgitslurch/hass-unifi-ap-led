@@ -26,7 +26,10 @@ class UnifiAPClient:
     async def create_ssl_context(self):
         """Create SSL context"""
         if self.session and not self.session.closed:
-            await self.session.close()
+            try:
+                await self.session.close()
+            except Exception as e:
+                self.log.warning("Error closing previous session: %s", e)
 
         def _make_context():
             context = ssl.create_default_context()
@@ -37,7 +40,6 @@ class UnifiAPClient:
 
         loop = asyncio.get_running_loop()
         self.ssl_context = await loop.run_in_executor(None, _make_context)
-
         self.session = aiohttp.ClientSession()
 
     async def _detect_controller_mode(self):
