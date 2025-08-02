@@ -31,28 +31,69 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Initial controller setup step."""
         errors = {}
         client = None
+
         if user_input is not None:
+            host = user_input[CONF_HOST]
+            username = user_input[CONF_USERNAME]
+            password = user_input[CONF_PASSWORD]
+            port = user_input.get(CONF_PORT, DEFAULT_PORT)
+            verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
+
             try:
+                # First attempt with provided/default port
                 client = UnifiAPClient(
-                    host=user_input[CONF_HOST],
-                    port=user_input.get(CONF_PORT, DEFAULT_PORT),
-                    username=user_input[CONF_USERNAME],
-                    password=user_input[CONF_PASSWORD],
-                    verify_ssl=user_input.get(CONF_VERIFY_SSL, True)
+                    host=host,
+                    port=port,
+                    username=username,
+                    password=password,
+                    verify_ssl=verify_ssl
                 )
-                
                 await client.create_ssl_context()
-                
-                if await client.login():
+
+                if not await client.login():
+                    _LOGGER.warning("Login failed on port %s, trying fallback port 443 if applicable", port)
+
+                    # If the user used default port (8443), try fallback
+                    if port == DEFAULT_PORT:
+                        await client.close_session()
+                        client = UnifiAPClient(
+                            host=host,
+                            port=443,
+                            username=username,
+                            password=password,
+                            verify_ssl=verify_ssl
+                        )
+                        await client.create_ssl_context()
+
+                        if not await client.login():
+                            errors["base"] = ERRORS["invalid_auth"]
+                            await client.close_session()
+                            client = None
+                        else:
+                            _LOGGER.info("Login succeeded using fallback port 443")
+                            port = 443  # update port to reflect fallback
+                    else:
+                        errors["base"] = ERRORS["invalid_auth"]
+                        await client.close_session()
+                        client = None
+
+                if client:
                     self.sites = await client.get_sites()
-                    self.controller_data = user_input
+                    self.controller_data = {
+                        CONF_HOST: host,
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
+                        CONF_PORT: port,
+                        CONF_VERIFY_SSL: verify_ssl
+                    }
                     self.client = client
-                    
+
                     if self.sites:
                         return await self.async_step_select_site()
                     errors["base"] = ERRORS["no_sites"]
-                else:
-                    errors["base"] = ERRORS["invalid_auth"]
+                    await client.close_session()
+                    self.client = None
+
             except aiohttp.ClientError:
                 errors["base"] = ERRORS["cannot_connect"]
             except Exception as e:
@@ -64,7 +105,7 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         await client.close_session()
                     except Exception as e:
                         _LOGGER.error("Error closing client: %s", e)
-        
+
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
