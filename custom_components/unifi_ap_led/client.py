@@ -22,6 +22,7 @@ class UnifiAPClient:
         self.session_cookie = None
         self.login_lock = asyncio.Lock()
         self.controller_version = "Unknown"
+        self.last_error = None  # Store last error for config_flow
 
     async def create_ssl_context(self):
         """Create SSL context"""
@@ -62,8 +63,8 @@ class UnifiAPClient:
                         self.log.debug("Detected UniFi OS device (UDM or CGU) using /proxy/network/")
                         return
         except Exception as e:
-            self.log.warning(f"Controller detection failed: {e}")
-    
+            self.log.warning(f"Controller detection failed: %s", e)
+        
         self.is_udm = False
         self.log.debug("Defaulting to non-UDM path")
 
@@ -77,7 +78,7 @@ class UnifiAPClient:
                               allow_redirects: bool = True, site_id: str = None) -> Tuple[aiohttp.ClientResponse, Any]:
         if self.ssl_context is None or self.session is None:
             await self.create_ssl_context()
-            
+        
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json"
@@ -89,51 +90,62 @@ class UnifiAPClient:
         if self.csrf_token and method != "GET":
             headers['x-csrf-token'] = self.csrf_token
             
-        # Add site context if available
         if site_id:
             headers["X-Site-Context"] = site_id
             
         full_url = f"https://{self.host}:{self.port}{url}"
         
-        try:
-            async with asyncio.timeout(15):
-                async with self.session.request(
-                    method,
-                    full_url,
-                    json=data,
-                    headers=headers,
-                    ssl=self.ssl_context,
-                    allow_redirects=allow_redirects
-                ) as resp:
-                    response_data = None
-                    
-                    if 'x-csrf-token' in resp.headers:
-                        self.csrf_token = resp.headers['x-csrf-token']
-                    
-                    if "set-cookie" in resp.headers:
-                        cookies = resp.headers["set-cookie"]
-                        if "unifises" in cookies:
-                            self.session_cookie = cookies.split(";")[0]
-                    
-                    if resp.status in (301, 302, 303, 307, 308):
-                        location = resp.headers.get('Location', '')
-                        if location and "/login" in location:
-                            self.authenticated = False
-                    
-                    if resp.status not in (301, 302, 303, 307, 308):
-                        content_type = resp.headers.get('Content-Type', '')
-                        if 'application/json' in content_type:
-                            try:
-                                response_data = await resp.json()
-                            except Exception:
+        for attempt in range(3):  # Retry up to 3 times for rate limits
+            try:
+                async with asyncio.timeout(15):
+                    async with self.session.request(
+                        method,
+                        full_url,
+                        json=data,
+                        headers=headers,
+                        ssl=self.ssl_context,
+                        allow_redirects=allow_redirects
+                    ) as resp:
+                        response_data = None
+                        
+                        if resp.status == 429:  # Rate limit
+                            retry_after = int(resp.headers.get("Retry-After", 5))
+                            self.log.warning("Rate limit hit for %s, retrying after %s seconds", full_url, retry_after)
+                            await asyncio.sleep(retry_after)
+                            continue
+                        
+                        if 'x-csrf-token' in resp.headers:
+                            self.csrf_token = resp.headers['x-csrf-token']
+                        
+                        if "set-cookie" in resp.headers:
+                            cookies = resp.headers["set-cookie"]
+                            if "unifises" in cookies:
+                                self.session_cookie = cookies.split(";")[0]
+                        
+                        if resp.status in (301, 302, 303, 307, 308):
+                            location = resp.headers.get('Location', '')
+                            if location and "/login" in location:
+                                self.authenticated = False
+                        
+                        if resp.status not in (301, 302, 303, 307, 308):
+                            content_type = resp.headers.get('Content-Type', '')
+                            if 'application/json' in content_type:
+                                try:
+                                    response_data = await resp.json()
+                                except Exception:
+                                    response_data = await resp.text()
+                            else:
                                 response_data = await resp.text()
-                        else:
-                            response_data = await resp.text()
-                    
-                    return resp, response_data
-        except Exception as e:
-            self.log.error(f"Request failed: {e}")
-            raise
+                        
+                        return resp, response_data
+            except asyncio.TimeoutError:
+                self.last_error = "Request timed out"
+                self.log.error("Request timed out: %s", full_url)
+                raise
+            except Exception as e:
+                self.last_error = str(e)
+                self.log.error("Request failed: %s", e)
+                raise
 
     async def login(self) -> bool:
         """Authenticate with UniFi controller"""
@@ -143,42 +155,61 @@ class UnifiAPClient:
                 
             self.session_cookie = None
             self.csrf_token = None
+            self.last_error = None  # Reset error
             
             if self.session:
                 self.session.cookie_jar.clear()
             
             await self._detect_controller_mode()
-            
-            login_url = "/api/auth/login" if self.is_udm else "/api/login"
             payload = {"username": self.username, "password": self.password}
             
-            try:
-                resp, data = await self._perform_request("POST", login_url, payload)
+            for attempt in range(2):  # Try current mode, then flip
+                login_endpoint = "api/auth/login" if self.is_udm else "api/login"
+                url = self._prefix_url(login_endpoint)
                 
-                if resp.status == 200:
-                    self.authenticated = True
+                try:
+                    resp, data = await self._perform_request("POST", url, payload)
                     
-                    # Get controller version after successful login
-                    await self.get_controller_version()
-                    return True
-                
-                return False
-            except Exception:
-                return False
+                    if resp.status == 200:
+                        self.authenticated = True
+                        await self.get_controller_version()
+                        _LOGGER.debug("Successfully logged into UniFi controller at %s:%s (UDM: %s)", 
+                                      self.host, self.port, self.is_udm)
+                        return True
+                    elif resp.status in (401, 403):
+                        # Check for MFA
+                        mfa_hint = False
+                        if isinstance(data, dict):
+                            if data.get("meta", {}).get("rc") == "error" and "267" in str(data):
+                                mfa_hint = True
+                            elif any("mfa" in str(v).lower() or "multi-factor" in str(v).lower() for v in data.values()):
+                                mfa_hint = True
+                        if mfa_hint:
+                            self.last_error = "MFA required: Use a local admin account without MFA."
+                            raise Exception(self.last_error)
+                        
+                        # Flip mode if first attempt
+                        if attempt == 0:
+                            self.is_udm = not self.is_udm
+                            _LOGGER.info("Auth failed; retrying with flipped UDM mode (self-hosted <-> UDM).")
+                            continue
+                    else:
+                        self.last_error = f"Login failed with status {resp.status}"
+                        _LOGGER.warning(self.last_error)
+                except Exception as e:
+                    self.last_error = str(e)
+                    _LOGGER.error("Login error: %s", e)
+                    return False
+
+            return False
 
     async def get_controller_version(self) -> str:
-        """Get controller software version"""
+        """Get controller version"""
         try:
-            if not await self._ensure_authenticated():
-                return "Unknown"
-            
-            # Try different endpoints to get version information
             endpoints = [
-                "status",
-                "api/system",
-                "api/self"
+                "api/stat/sysinfo",
+                "api/s/default/stat/sysinfo"
             ]
-            
             for endpoint in endpoints:
                 url = self._prefix_url(endpoint)
                 resp, data = await self._perform_request("GET", url)
@@ -218,7 +249,7 @@ class UnifiAPClient:
                         
             return "Unknown"
         except Exception as e:
-            self.log.error(f"Error getting controller version: {e}")
+            self.log.error(f"Error getting controller version: %s", e)
             return "Unknown"
 
     async def _ensure_authenticated(self):
