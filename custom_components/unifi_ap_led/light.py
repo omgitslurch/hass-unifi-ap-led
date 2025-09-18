@@ -16,7 +16,7 @@ async def async_setup_entry(
     coordinator = entry_data["coordinator"]
     site_name = entry.data.get(CONF_SITE_NAME, "UniFi Site")
 
-    ap_macs = entry.data.get(CONF_AP_MACS)
+    ap_macs = entry.data.get(CONF_AP_MACS, [entry.data.get(CONF_AP_MAC)]) if entry.data.get(CONF_AP_MACS) else [entry.data.get(CONF_AP_MAC)]
     if not ap_macs:
         # Fallback for old config entries
         ap_macs = [entry.data.get(CONF_AP_MAC)]
