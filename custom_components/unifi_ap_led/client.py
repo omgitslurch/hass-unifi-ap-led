@@ -74,70 +74,77 @@ class UnifiAPClient:
             return f"/proxy/network/{endpoint.lstrip('/')}"
         return f"/{endpoint.lstrip('/')}"
 
-    async def _perform_request(self, method: str, url: str, data: Optional[dict] = None, 
-                              allow_redirects: bool = True, site_id: str = None) -> Tuple[aiohttp.ClientResponse, Any]:
-        if self.ssl_context is None or self.session is None:
-            await self.create_ssl_context()
-        
+    def _build_headers(self, method: str, site_id: Optional[str] = None) -> Dict[str, str]:
+        """Build request headers"""
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json"
         }
-        
         if self.session_cookie:
             headers["Cookie"] = self.session_cookie
-            
         if self.csrf_token and method != "GET":
-            headers['x-csrf-token'] = self.csrf_token
-            
+            headers["x-csrf-token"] = self.csrf_token
         if site_id:
             headers["X-Site-Context"] = site_id
-            
+        return headers
+
+    async def _parse_response(self, resp: aiohttp.ClientResponse) -> Any:
+        """Parse response content"""
+        content_type = resp.headers.get("Content-Type", "")
+        if "application/json" in content_type:
+            try:
+                return await resp.json()
+            except Exception:
+                return await resp.text()
+        return await resp.text()
+
+    async def _handle_response_status(self, resp: aiohttp.ClientResponse, full_url: str) -> Tuple[bool, Optional[Any]]:
+        """Handle response status and headers"""
+        if resp.status == 429:  # Rate limit
+            retry_after = int(resp.headers.get("Retry-After", 5))
+            self.log.warning("Rate limit hit for %s, retrying after %s seconds", full_url, retry_after)
+            return False, retry_after
+
+        if "x-csrf-token" in resp.headers:
+            self.csrf_token = resp.headers["x-csrf-token"]
+
+        if "set-cookie" in resp.headers:
+            cookies = resp.headers["set-cookie"]
+            if "unifises" in cookies:
+                self.session_cookie = cookies.split(";")[0]
+
+        if resp.status in (301, 302, 303, 307, 308):
+            location = resp.headers.get("Location", "")
+            if location and "/login" in location:
+                self.authenticated = False
+            return True, None
+
+        return True, await self._parse_response(resp)
+
+    async def _perform_request(self, method: str, url: str, data: Optional[dict] = None, 
+                              allow_redirects: bool = True, site_id: str = None) -> Tuple[aiohttp.ClientResponse, Any]:
+        """Perform HTTP request with retries"""
+        if self.ssl_context is None or self.session is None:
+            await self.create_ssl_context()
+
         full_url = f"https://{self.host}:{self.port}{url}"
         
-        for attempt in range(3):  # Retry up to 3 times for rate limits
+        for attempt in range(3):  # Retry up to 3 times
             try:
                 async with asyncio.timeout(15):
                     async with self.session.request(
                         method,
                         full_url,
                         json=data,
-                        headers=headers,
+                        headers=self._build_headers(method, site_id),
                         ssl=self.ssl_context,
                         allow_redirects=allow_redirects
                     ) as resp:
-                        response_data = None
-                        
-                        if resp.status == 429:  # Rate limit
-                            retry_after = int(resp.headers.get("Retry-After", 5))
-                            self.log.warning("Rate limit hit for %s, retrying after %s seconds", full_url, retry_after)
-                            await asyncio.sleep(retry_after)
+                        continue_request, result = await self._handle_response_status(resp, full_url)
+                        if not continue_request:
+                            await asyncio.sleep(result)  # Retry-After for 429
                             continue
-                        
-                        if 'x-csrf-token' in resp.headers:
-                            self.csrf_token = resp.headers['x-csrf-token']
-                        
-                        if "set-cookie" in resp.headers:
-                            cookies = resp.headers["set-cookie"]
-                            if "unifises" in cookies:
-                                self.session_cookie = cookies.split(";")[0]
-                        
-                        if resp.status in (301, 302, 303, 307, 308):
-                            location = resp.headers.get('Location', '')
-                            if location and "/login" in location:
-                                self.authenticated = False
-                        
-                        if resp.status not in (301, 302, 303, 307, 308):
-                            content_type = resp.headers.get('Content-Type', '')
-                            if 'application/json' in content_type:
-                                try:
-                                    response_data = await resp.json()
-                                except Exception:
-                                    response_data = await resp.text()
-                            else:
-                                response_data = await resp.text()
-                        
-                        return resp, response_data
+                        return resp, result
             except asyncio.TimeoutError:
                 self.last_error = "Request timed out"
                 self.log.error("Request timed out: %s", full_url)
