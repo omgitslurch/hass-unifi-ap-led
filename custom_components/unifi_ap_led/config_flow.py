@@ -5,6 +5,7 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import selector
 from .const import (
     DOMAIN, CONF_SITE_ID, CONF_SITE_NAME, CONF_AP_MAC, 
     CONF_VERIFY_SSL, CONF_PORT, DEFAULT_PORT, ERRORS,
@@ -15,7 +16,7 @@ from .client import UnifiAPClient
 _LOGGER = logging.getLogger(__name__)
 
 class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 1
+    VERSION = 2  # Bumped for migration
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     def __init__(self):
@@ -33,11 +34,16 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         client = None
 
         if user_input is not None:
-            host = user_input[CONF_HOST]
-            username = user_input[CONF_USERNAME]
-            password = user_input[CONF_PASSWORD]
-            port = user_input.get(CONF_PORT, DEFAULT_PORT)
-            verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
+            host = user_input[CONF_HOST].strip()
+            # Validate host (IP or hostname)
+            if not re.match(r"^(?:\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})$", host):
+                errors["host"] = "invalid_host"
+            else:
+                host = user_input[CONF_HOST]
+                username = user_input[CONF_USERNAME]
+                password = user_input[CONF_PASSWORD]
+                port = user_input.get(CONF_PORT, DEFAULT_PORT)
+                verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
 
             try:
                 # First attempt with provided/default port
@@ -66,14 +72,14 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         await client.create_ssl_context()
 
                         if not await client.login():
-                            errors["base"] = ERRORS["invalid_auth"]
+                            errors["base"] = "mfa_required" if "MFA required" in str(client.last_error) else ERRORS["invalid_auth"]
                             await client.close_session()
                             client = None
                         else:
                             _LOGGER.info("Login succeeded using fallback port 443")
-                            port = 443  # update port to reflect fallback
+                            port = 443  # Update port to reflect fallback
                     else:
-                        errors["base"] = ERRORS["invalid_auth"]
+                        errors["base"] = "mfa_required" if "MFA required" in str(client.last_error) else ERRORS["invalid_auth"]
                         await client.close_session()
                         client = None
 
@@ -142,102 +148,98 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if self.ap_devices:
                     return await self.async_step_select_aps()
                 errors["base"] = ERRORS["no_aps"]
-        
-        site_options = {
-            site["name"]: site.get("desc", site["name"])
-            for site in self.sites
-        }
-        
-        if not site_options:
-            return self.async_abort(reason=ERRORS["no_sites"])
-        
+
         return self.async_show_form(
             step_id="select_site",
             data_schema=vol.Schema({
-                vol.Required(CONF_SITE_ID): vol.In(site_options)
+                vol.Required(CONF_SITE_ID): vol.In({
+                    s["name"]: f"{s['desc']} ({s['name']})" if s.get("desc") else s["name"]
+                    for s in self.sites
+                })
             }),
-            errors=errors,
-            description_placeholders={"site_count": len(site_options)}
+            errors=errors
         )
 
     async def async_step_select_aps(self, user_input=None):
         """Select multiple Access Points to control."""
         errors = {}
         if user_input is not None:
-            self.selected_aps = user_input[CONF_AP_MACS]
-            if not self.selected_aps:
-                errors["base"] = "no_aps_selected"
+            selected_macs = user_input.get(CONF_AP_MACS, [])
+            if not selected_macs:
+                errors["base"] = ERRORS["no_aps_selected"]
             else:
-                # Create config entries for all selected APs
-                return await self.async_step_create_entries()
-        
-        # Prepare options for multi-select
+                self.selected_aps = selected_macs
+                return await self.async_step_create_entry()
+
+            # Close client on error
+            if self.client:
+                await self.client.close_session()
+                self.client = None
+
+        # Build options dict
         ap_options = {
-            device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model_display') or device.get('model', 'AP')})"
+            device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model', 'AP')})"
             for device in self.ap_devices
             if device.get("mac")
         }
-        
+
+        if not ap_options:
+            return self.async_abort(reason=ERRORS["no_aps"])
+
         return self.async_show_form(
             step_id="select_aps",
             data_schema=vol.Schema({
-                vol.Required(CONF_AP_MACS): cv.multi_select(ap_options)
+                vol.Required(CONF_AP_MACS, default=[]): selector.SelectSelector(
+                    selector.SelectOptionDict(
+                        multiple=True,
+                        options=[selector.SelectOption(key=key, label=label) for key, label in ap_options.items()],
+                        custom_value=None
+                    )
+                )
             }),
             errors=errors,
             description_placeholders={"ap_count": len(ap_options)}
         )
 
-    async def async_step_create_entries(self):
-        """Create config entries for selected APs."""
-        # Get site name (stored in previous step)
+    async def async_step_create_entry(self, user_input=None):
+        """Create the single config entry with all selected APs."""
+        if not self.selected_aps:
+            return self.async_abort(reason=ERRORS["no_aps_selected"])
+
         site_name = self.controller_data.get(CONF_SITE_NAME, self.selected_site)
-        created_entries = []
-        
-        for ap_mac in self.selected_aps:
-            # Find device name for selected AP
-            ap_name = f"UniFi AP {ap_mac}"
-            for device in self.ap_devices:
-                if device.get("mac") == ap_mac:
-                    ap_name = device.get("name", ap_name)
-                    break
-            
-            # Create entry data
-            data = {
-                **self.controller_data,
-                CONF_SITE_ID: self.selected_site,
-                CONF_AP_MAC: ap_mac,
-                CONF_SITE_NAME: site_name
-            }
-            
-            # Set unique ID
-            unique_id = f"{self.selected_site}_{ap_mac}"
-            await self.async_set_unique_id(unique_id)
-            self._abort_if_unique_id_configured()
-            
-            # Create title
-            title = f"UniFi Controller ({self.controller_data[CONF_HOST]}) - {site_name}"
-            
-            # Create entry
-            entry = self.async_create_entry(title=title, data=data)
-            created_entries.append(entry)
-        
-        # Close client session
+
+        # Single data with list of MACs
+        data = {
+            **self.controller_data,
+            CONF_SITE_ID: self.selected_site,
+            CONF_AP_MACS: self.selected_aps,  # List
+            CONF_SITE_NAME: site_name
+        }
+
+        # Unique ID for the site/integration
+        unique_id = f"{self.selected_site}_unifi_ap_led_{self.controller_data[CONF_HOST]}"
+        await self.async_set_unique_id(unique_id)
+        self._abort_if_unique_id_configured(updates=self.controller_data)
+
+        # Dynamic title
+        ap_count = len(self.selected_aps)
+        title = f"UniFi AP LEDs ({self.controller_data[CONF_HOST]}, {ap_count} AP{'s' if ap_count > 1 else ''}) - {site_name}"
+
+        # Create and return single entry
+        entry = self.async_create_entry(title=title, data=data)
+
+        # Close client
         if self.client:
-            try:
-                await self.client.close_session()
-            except Exception as e:
-                _LOGGER.error("Error closing client: %s", e)
-        
-        # Return the last created entry (HA handles multiple creates)
-        return created_entries[-1] if created_entries else self.async_abort(reason="no_aps_selected")
+            await self.client.close_session()
+
+        return entry
 
     async def async_step_select_ap(self, user_input=None):
         """Select single Access Point to control (backward compatibility)."""
-        # This step is preserved for backward compatibility
         if user_input is not None:
             self.selected_aps = [user_input[CONF_AP_MAC]]
-            return await self.async_step_create_entries()
-        
+            return await self.async_step_create_entry()
+
         ap_options = {
             device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model', 'AP')})"
             for device in self.ap_devices
@@ -276,6 +278,7 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         self.config_entry = config_entry
         self.ap_devices = []
         self.client = None
+        self.selected_aps = []
 
     async def async_step_init(self, user_input=None):
         """Manage additional APs."""
@@ -303,11 +306,7 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
             _LOGGER.error("Error fetching devices: %s", e, exc_info=True)
             return self.async_abort(reason=ERRORS["cannot_connect"])
         
-        configured_aps = {
-            entry.data[CONF_AP_MAC]
-            for entry in self.hass.config_entries.async_entries(DOMAIN)
-            if entry.data[CONF_SITE_ID] == self.config_entry.data[CONF_SITE_ID]
-        }
+        configured_aps = data.get(CONF_AP_MACS, [data.get(CONF_AP_MAC)]) if data.get(CONF_AP_MACS) else [data.get(CONF_AP_MAC)]
         
         ap_options = {
             device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model_display') or device.get('model', 'AP')})"
@@ -324,28 +323,28 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         """Add additional AP."""
         errors = {}
         if user_input is not None:
-            data = {
-                **self.config_entry.data,
-                CONF_AP_MAC: user_input[CONF_AP_MAC]
-            }
-            
-            ap_name = f"UniFi AP {user_input[CONF_AP_MAC]}"
-            for device in self.ap_devices:
-                if device.get("mac") == user_input[CONF_AP_MAC]:
-                    ap_name = device.get("name", ap_name)
-                    break
-            
+            new_mac = user_input[CONF_AP_MAC]
+            # Load current data
+            current_data = dict(self.config_entry.data)
+            current_macs = current_data.get(CONF_AP_MACS) or [current_data.get(CONF_AP_MAC)]
+            if isinstance(current_macs, str):  # Legacy single
+                current_macs = [current_macs]
+            if new_mac in current_macs:
+                return self.async_abort(reason="already_configured")
+
+            current_macs.append(new_mac)
+            current_data[CONF_AP_MACS] = current_macs
+
+            # Update title
+            site_name = current_data.get(CONF_SITE_NAME, current_data[CONF_SITE_ID])
+            ap_count = len(current_macs)
+            new_title = f"UniFi AP LEDs ({current_data[CONF_HOST]}, {ap_count} AP{'s' if ap_count > 1 else ''}) - {site_name}"
+
+            # Update existing entry (no new creation)
             if self.client:
                 await self.client.close_session()
-                
-            unique_id = f"{data[CONF_SITE_ID]}_{user_input[CONF_AP_MAC]}"
-            site_name = data.get(CONF_SITE_NAME, data[CONF_SITE_ID])
-            title = f"UniFi Controller ({data[CONF_HOST]}) - {site_name}"
-            
-            return self.async_create_entry(
-                title=title,
-                data={"unique_id": unique_id, "data": data}
-            )
+
+            return self.async_create_entry(title=new_title, data=current_data)
         
         return self.async_show_form(
             step_id="add_ap",
@@ -353,8 +352,10 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required(CONF_AP_MAC): vol.In({
                     device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model_display') or device.get('model', 'AP')})"
                     for device in self.ap_devices
+                    if device["mac"] not in configured_aps
                 })
             }),
+            description_placeholders={"description": "Add more APs to this site."},
             errors=errors
         )
     
