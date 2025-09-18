@@ -35,16 +35,10 @@ You will need:
 
 ---
 
-## Flash Button
+## Entities
 
-Triggers the `locate` command to blink the AP LED for 2 minutes — useful for physically identifying devices.
-
----
-
-## Switch
-
-Turns the AP's LED on or off.  
-Note: This does **not** disable the actual Wi-Fi functionality.
+- **Light Entity**: Controls the LED state (on/off) for each AP (e.g., `light.office_ap_led`).
+- **Button Entity**: Triggers the `locate` command to flash the AP’s LED for 2 minutes (e.g., `button.office_ap_flash`).
 
 ---
 
