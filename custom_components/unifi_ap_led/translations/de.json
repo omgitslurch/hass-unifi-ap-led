@@ -2,62 +2,83 @@
   "config": {
     "step": {
       "user": {
-        "title": "UniFi Controller Einrichtung",
+        "title": "UniFi-Controller-Einrichtung",
         "data": {
-          "host": "Controller Host/IP",
+          "host": "Controller-Host/IP",
           "username": "Benutzername",
           "password": "Passwort",
           "port": "Port (Standard: 8443)",
           "verify_ssl": "SSL überprüfen"
         },
-        "description": "Hinweis: Der Standortname ist normalerweise 'default', es sei denn, Sie haben mehrere Standorte."
+        "description": "Hinweis: Der Site-Name ist normalerweise 'default', es sei denn, Sie haben mehrere Sites."
       },
       "select_site": {
-        "title": "Standort auswählen",
+        "title": "Site auswählen",
         "data": {
-          "site_id": "Standort"
+          "site_id": "Site"
         },
-        "description": "{site_count} Standort(e) gefunden. Wählen Sie den Standort mit Ihren Access Points."
+        "description": "{site_count} Site(s) gefunden. Wählen Sie die Site aus, die Ihre Access Points enthält."
       },
       "select_aps": {
         "title": "Access Points auswählen",
         "data": {
           "ap_macs": "Access Points"
         },
-        "description": "{ap_count} Access Point(s) gefunden. Wählen Sie aus, welche Sie steuern möchten."
+        "description": "{ap_count} Access Point(s) gefunden. Wählen Sie diejenigen aus, die Sie steuern möchten."
       },
       "select_ap": {
         "title": "Access Point auswählen",
         "data": {
           "ap_mac": "Access Point"
         },
-        "description": "{ap_count} Access Point(s) gefunden. Wählen Sie aus, welchen Sie steuern möchten."
+        "description": "{ap_count} Access Point(s) gefunden. Wählen Sie denjenigen aus, den Sie steuern möchten."
       },
       "add_ap": {
         "title": "Access Point hinzufügen",
         "data": {
           "ap_mac": "Access Point"
         },
-        "description": "Wählen Sie einen zusätzlichen Access Point zum Steuern aus."
+        "description": "Wählen Sie einen zusätzlichen Access Point aus, den Sie steuern möchten."
       }
     },
     "error": {
-      "cannot_connect": "Verbindung zum UniFi Controller fehlgeschlagen",
+      "cannot_connect": "Verbindung zum UniFi-Controller fehlgeschlagen",
       "invalid_auth": "Ungültige Authentifizierung",
-      "no_sites": "Keine Standorte auf diesem Controller gefunden",
-      "no_aps": "Keine Access Points an diesem Standort gefunden",
+      "no_sites": "Keine Sites auf diesem Controller gefunden",
+      "no_aps": "Keine Access Points in dieser Site gefunden",
       "no_new_aps": "Keine zusätzlichen Access Points verfügbar",
       "no_aps_selected": "Bitte wählen Sie mindestens einen Access Point aus",
-      "timeout": "Zeitüberschreitung der Anfrage. Überprüfen Sie die Verbindung zum Controller.",
+      "timeout": "Anfragezeitüberschreitung. Überprüfen Sie Ihre Controller-Verbindung.",
       "connection_error": "Netzwerkverbindungsfehler aufgetreten",
-      "unknown": "Ein unbekannter Fehler ist aufgetreten"
+      "unknown": "Unbekannter Fehler aufgetreten",
+      "mfa_required": "Authentifizierung fehlgeschlagen: Verwenden Sie ein lokales Admin-Konto (Einstellungen > Admins > Lokalen Admin erstellen – kein MFA). Cloud-Konten (ui.com) mit MFA werden nicht unterstützt.",
+      "rate_limit": "UniFi-API-Ratenbegrenzung überschritten. Bitte versuchen Sie es später erneut.",
+      "invalid_host": "Ungültiges Host-Format. Verwenden Sie eine IP-Adresse (z. B. 192.168.1.1) oder eine Domäne (z. B. unifi.local)."
     },
     "abort": {
       "no_aps": "Keine Access Points auf diesem Controller gefunden",
       "no_new_aps": "Keine zusätzlichen Access Points verfügbar"
     },
     "progress": {
-      "creating_entries": "Erstelle Konfigurationseinträge"
+      "creating_entries": "Konfigurationseinträge werden erstellt"
+    }
+  },
+  "options": {
+    "step": {
+      "add_ap": {
+        "title": "Access Point hinzufügen",
+        "data": {
+          "ap_mac": "Access Point"
+        },
+        "description": "Wählen Sie einen zusätzlichen Access Point aus, den Sie steuern möchten."
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zum UniFi-Controller fehlgeschlagen",
+      "no_new_aps": "Keine zusätzlichen Access Points verfügbar",
+      "already_configured": "Access Point bereits konfiguriert",
+      "mfa_required": "Authentifizierung fehlgeschlagen: Verwenden Sie ein lokales Admin-Konto (Einstellungen > Admins > Lokalen Admin erstellen – kein MFA). Cloud-Konten (ui.com) mit MFA werden nicht unterstützt.",
+      "rate_limit": "UniFi-API-Ratenbegrenzung überschritten. Bitte versuchen Sie es später erneut."
     }
   }
 }
