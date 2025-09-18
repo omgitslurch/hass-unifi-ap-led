@@ -5,11 +5,16 @@
 
 This integration allows Home Assistant to control the **status LEDs** on UniFi Access Points (APs), including:
 
-- 🔄 Turning the LED on/off via a `switch`
-- ✴️ Flashing the LED for 2 minutes via a `button` 
+- 🔄 Turning the LED on/off via a `light entity`
+- ✴️ Flashing the LED for 2 minutes via a `button entity` 
 - ⚙️ Fully configurable via the Home Assistant UI
 
-> **Note** ⚠️ This is an early **Beta** release. In theory, it supports both UDMs and self-hosted controllers. However, I only have a self-hosted controller available for testing, so UDM support is unconfirmed.
+---
+
+## Requirements
+- Home Assistant 2023.1.0 or later (recommended)
+- HACS (Home Assistant Community Store)
+- A UniFi controller (self-hosted, UDM or Cloud Gateway, though UDM and Cloud Gateway support is untested)
 
 ---
 
@@ -48,6 +53,13 @@ Note: This does **not** disable the actual Wi-Fi functionality.
 - ⚠️ This integration allows you to disable SSL verification when connecting to the UniFi controller. If you do so, ensure your network is secure and that credentials are protected.
 - You should not use your main ui.com account. Create a local account on your Controller for the Integration to use with no MFA enabled.
 
+---
+
+## Troubleshooting
+
+- **Connection errors**: Ensure the controller IP/hostname is correct and reachable.
+- **Authentication errors**: Verify the username/password and ensure the account has sufficient permissions, and does **NOT** have MFA enabled.
+  
 ---
 
 ## Disclaimer
