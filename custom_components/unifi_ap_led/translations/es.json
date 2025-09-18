@@ -5,52 +5,55 @@
         "title": "Configuración del controlador UniFi",
         "data": {
           "host": "Host/IP del controlador",
-          "username": "Usuario",
+          "username": "Nombre de usuario",
           "password": "Contraseña",
           "port": "Puerto (predeterminado: 8443)",
           "verify_ssl": "Verificar SSL"
         },
-        "description": "Nota: El nombre del sitio suele ser 'default' a menos que tenga varios sitios."
+        "description": "Nota: El nombre del sitio suele ser 'default' a menos que tengas múltiples sitios."
       },
       "select_site": {
         "title": "Seleccionar sitio",
         "data": {
           "site_id": "Sitio"
         },
-        "description": "Se encontró {site_count} sitio(s). Seleccione el sitio que contiene sus puntos de acceso."
+        "description": "Se encontraron {site_count} sitio(s). Selecciona el sitio que contiene tus puntos de acceso."
       },
       "select_aps": {
         "title": "Seleccionar puntos de acceso",
         "data": {
           "ap_macs": "Puntos de acceso"
         },
-        "description": "Se encontró {ap_count} punto(s) de acceso. Seleccione cuáles desea controlar."
+        "description": "Se encontraron {ap_count} punto(s) de acceso. Selecciona los que deseas controlar."
       },
       "select_ap": {
         "title": "Seleccionar punto de acceso",
         "data": {
           "ap_mac": "Punto de acceso"
         },
-        "description": "Se encontró {ap_count} punto(s) de acceso. Seleccione cuál desea controlar."
+        "description": "Se encontraron {ap_count} punto(s) de acceso. Selecciona el que deseas controlar."
       },
       "add_ap": {
-        "title": "Agregar punto de acceso",
+        "title": "Añadir punto de acceso",
         "data": {
           "ap_mac": "Punto de acceso"
         },
-        "description": "Seleccione un punto de acceso adicional para controlar."
+        "description": "Selecciona un punto de acceso adicional para controlar."
       }
     },
     "error": {
-      "cannot_connect": "Error al conectar al controlador UniFi",
+      "cannot_connect": "No se pudo conectar al controlador UniFi",
       "invalid_auth": "Autenticación inválida",
       "no_sites": "No se encontraron sitios en este controlador",
       "no_aps": "No se encontraron puntos de acceso en este sitio",
       "no_new_aps": "No hay puntos de acceso adicionales disponibles",
-      "no_aps_selected": "Por favor seleccione al menos un punto de acceso",
-      "timeout": "Tiempo de espera agotado. Verifique su conexión al controlador.",
+      "no_aps_selected": "Por favor, selecciona al menos un punto de acceso",
+      "timeout": "Tiempo de espera de la solicitud. Verifica la conexión del controlador.",
       "connection_error": "Ocurrió un error de conexión de red",
-      "unknown": "Ocurrió un error desconocido"
+      "unknown": "Ocurrió un error desconocido",
+      "mfa_required": "Fallo en la autenticación: Usa una cuenta de administrador local (Configuración > Admins > Crear administrador local, sin MFA). Las cuentas en la nube (ui.com) con MFA no son compatibles.",
+      "rate_limit": "Límite de tasa de la API de UniFi excedido. Por favor, intenta de nuevo más tarde.",
+      "invalid_host": "Formato de host inválido. Usa una dirección IP (p. ej., 192.168.1.1) o un dominio (p. ej., unifi.local)."
     },
     "abort": {
       "no_aps": "No se encontraron puntos de acceso en este controlador",
@@ -58,6 +61,24 @@
     },
     "progress": {
       "creating_entries": "Creando entradas de configuración"
+    }
+  },
+  "options": {
+    "step": {
+      "add_ap": {
+        "title": "Añadir punto de acceso",
+        "data": {
+          "ap_mac": "Punto de acceso"
+        },
+        "description": "Selecciona un punto de acceso adicional para controlar."
+      }
+    },
+    "error": {
+      "cannot_connect": "No se pudo conectar al controlador UniFi",
+      "no_new_aps": "No hay puntos de acceso adicionales disponibles",
+      "already_configured": "Punto de acceso ya configurado",
+      "mfa_required": "Fallo en la autenticación: Usa una cuenta de administrador local (Configuración > Admins > Crear administrador local, sin MFA). Las cuentas en la nube (ui.com) con MFA no son compatibles.",
+      "rate_limit": "Límite de tasa de la API de UniFi excedido. Por favor, intenta de nuevo más tarde."
     }
   }
 }
