@@ -15,8 +15,7 @@ This integration allows Home Assistant to control the **status LEDs** on UniFi A
 
 ## Installation
 
-- Add the repository to HACS  
-<a href="https://my.home-assistant.io/redirect/hacs_repository/?category=integration&amp;repository=hass-unifi-ap-led&amp;owner=omgitslurch" rel="nofollow"><img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open your Home Assistant instance and open a repository inside the Home Assistant Community Store."></a>
+- Search for "UniFi AP LED Control" in HACS
 - Install **UniFi AP LED Control**
 - Restart Home Assistant
 
@@ -26,7 +25,7 @@ This integration allows Home Assistant to control the **status LEDs** on UniFi A
 
 You will need:
 - UniFi Controller IP/hostname
-- Username and password (use a local account with limited permissions)
+- Username and password (use a local account with no MFA for least risk). If an account has MFA enabled, it will fail.
 - Site ID (usually `default`)
 
 ---
@@ -46,7 +45,8 @@ Note: This does **not** disable the actual Wi-Fi functionality.
 
 ## Security
 
-⚠️ This integration allows you to disable SSL verification when connecting to the UniFi controller. If you do so, ensure your network is secure and that credentials are protected.
+- ⚠️ This integration allows you to disable SSL verification when connecting to the UniFi controller. If you do so, ensure your network is secure and that credentials are protected.
+- You should not use your main ui.com account. Create a local account on your Controller for the Integration to use with no MFA enabled.
 
 ---
 
