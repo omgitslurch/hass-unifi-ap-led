@@ -7,27 +7,27 @@
           "host": "Hôte/IP du contrôleur",
           "username": "Nom d'utilisateur",
           "password": "Mot de passe",
-          "port": "Port (défaut : 8443)",
+          "port": "Port (par défaut : 8443)",
           "verify_ssl": "Vérifier SSL"
         },
         "description": "Note : Le nom du site est généralement 'default' sauf si vous avez plusieurs sites."
       },
       "select_site": {
-        "title": "Sélectionnez le site",
+        "title": "Sélectionner un site",
         "data": {
           "site_id": "Site"
         },
         "description": "{site_count} site(s) trouvé(s). Sélectionnez le site contenant vos points d'accès."
       },
       "select_aps": {
-        "title": "Sélectionnez les points d'accès",
+        "title": "Sélectionner les points d'accès",
         "data": {
           "ap_macs": "Points d'accès"
         },
         "description": "{ap_count} point(s) d'accès trouvé(s). Sélectionnez ceux que vous souhaitez contrôler."
       },
       "select_ap": {
-        "title": "Sélectionnez le point d'accès",
+        "title": "Sélectionner un point d'accès",
         "data": {
           "ap_mac": "Point d'accès"
         },
@@ -45,12 +45,15 @@
       "cannot_connect": "Échec de la connexion au contrôleur UniFi",
       "invalid_auth": "Authentification invalide",
       "no_sites": "Aucun site trouvé sur ce contrôleur",
-      "no_aps": "Aucun point d'accès trouvé sur ce site",
+      "no_aps": "Aucun point d'accès trouvé dans ce site",
       "no_new_aps": "Aucun point d'accès supplémentaire disponible",
       "no_aps_selected": "Veuillez sélectionner au moins un point d'accès",
-      "timeout": "Délai de requête dépassé. Vérifiez votre connexion au contrôleur.",
-      "connection_error": "Erreur de connexion réseau",
-      "unknown": "Une erreur inconnue est survenue"
+      "timeout": "Délai d'attente de la requête. Vérifiez la connexion de votre contrôleur.",
+      "connection_error": "Une erreur de connexion réseau s'est produite",
+      "unknown": "Une erreur inconnue s'est produite",
+      "mfa_required": "Échec de l'authentification : Utilisez un compte administrateur local (Paramètres > Admins > Créer un admin local, sans MFA). Les comptes cloud (ui.com) avec MFA ne sont pas pris en charge.",
+      "rate_limit": "Limite de débit de l'API UniFi dépassée. Veuillez réessayer plus tard.",
+      "invalid_host": "Format d'hôte invalide. Utilisez une adresse IP (par ex., 192.168.1.1) ou un domaine (par ex., unifi.local)."
     },
     "abort": {
       "no_aps": "Aucun point d'accès trouvé sur ce contrôleur",
@@ -58,6 +61,24 @@
     },
     "progress": {
       "creating_entries": "Création des entrées de configuration"
+    }
+  },
+  "options": {
+    "step": {
+      "add_ap": {
+        "title": "Ajouter un point d'accès",
+        "data": {
+          "ap_mac": "Point d'accès"
+        },
+        "description": "Sélectionnez un point d'accès supplémentaire à contrôler."
+      }
+    },
+    "error": {
+      "cannot_connect": "Échec de la connexion au contrôleur UniFi",
+      "no_new_aps": "Aucun point d'accès supplémentaire disponible",
+      "already_configured": "Point d'accès déjà configuré",
+      "mfa_required": "Échec de l'authentification : Utilisez un compte administrateur local (Paramètres > Admins > Créer un admin local, sans MFA). Les comptes cloud (ui.com) avec MFA ne sont pas pris en charge.",
+      "rate_limit": "Limite de débit de l'API UniFi dépassée. Veuillez réessayer plus tard."
     }
   }
 }
