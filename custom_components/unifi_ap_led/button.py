@@ -13,11 +13,10 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback
 ):
-    """Set up flash LED buttons for each AP."""
     entry_data = hass.data[DOMAIN][entry.entry_id]
     coordinator = entry_data["coordinator"]
 
-    ap_macs = entry.data.get(CONF_AP_MACS)
+    ap_macs = entry.data.get(CONF_AP_MACS, [entry.data.get(CONF_AP_MAC)]) if entry.data.get(CONF_AP_MACS) else [entry.data.get(CONF_AP_MAC)]
     if not ap_macs:
         # Fallback for legacy entries
         ap_macs = [entry.data.get(CONF_AP_MAC)]
