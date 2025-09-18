@@ -50,7 +50,10 @@
       "no_aps_selected": "Please select at least one access point",
       "timeout": "Request timed out. Check your controller connection.",
       "connection_error": "Network connection error occurred",
-      "unknown": "Unknown error occurred"
+      "unknown": "Unknown error occurred",
+      "rate_limit": "UniFi API rate limit exceeded. Please try again later.",
+      "invalid_host": "Invalid host format. Use an IP address (e.g., 192.168.1.1) or domain (e.g., unifi.local).",
+      "mfa_required": "Authentication failed: Use a local admin account (Settings > Admins > Create Local Admin—no MFA). Cloud accounts (ui.com) with MFA are not supported."
     },
     "abort": {
       "no_aps": "No access points found on this controller",
@@ -58,6 +61,24 @@
     },
     "progress": {
       "creating_entries": "Creating configuration entries"
+    }
+  },
+  "options": {
+    "step": {
+      "add_ap": {
+        "title": "Add Access Point",
+        "data": {
+          "ap_mac": "Access Point"
+        },
+        "description": "Select an additional access point to control."
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to UniFi controller",
+      "no_new_aps": "No additional access points available",
+      "already_configured": "Access point already configured",
+      "rate_limit": "UniFi API rate limit exceeded. Please try again later.",
+      "mfa_required": "Authentication failed: Use a local admin account (Settings > Admins > Create Local Admin—no MFA). Cloud accounts (ui.com) with MFA are not supported."
     }
   }
 }
