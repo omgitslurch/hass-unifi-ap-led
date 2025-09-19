@@ -1,6 +1,9 @@
 import voluptuous as vol
 import logging
 import aiohttp
+import ipaddress
+import re
+
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD
@@ -35,8 +38,14 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             host = user_input[CONF_HOST].strip()
+
             # Validate host (IP or hostname)
-            if not re.match(r"^(?:\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})$", host):
+            try:
+                hostIp = ipaddress.ip_address(host)
+                host_is_valid_ip = True
+            except ValueError:
+                host_is_valid_ip = False
+            if not re.match(r"^([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})$", host) and not host_is_valid_ip:
                 errors["host"] = "invalid_host"
             else:
                 host = user_input[CONF_HOST]
@@ -157,6 +166,7 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     for s in self.sites
                 })
             }),
+            description_placeholders={"site_count": len(self.sites)},
             errors=errors
         )
 
@@ -185,15 +195,13 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if not ap_options:
             return self.async_abort(reason=ERRORS["no_aps"])
-
         return self.async_show_form(
             step_id="select_aps",
             data_schema=vol.Schema({
                 vol.Required(CONF_AP_MACS, default=[]): selector.SelectSelector(
-                    selector.SelectOptionDict(
+                    selector.SelectSelectorConfig(
                         multiple=True,
-                        options=[selector.SelectOption(key=key, label=label) for key, label in ap_options.items()],
-                        custom_value=None
+                        options=[selector.SelectOptionDict(value=key, label=label) for key, label in ap_options.items()]
                     )
                 )
             }),
