@@ -56,12 +56,16 @@ class UnifiAPClient:
             # Try UDM/CGU path (/proxy/network/)
             test_url = "/proxy/network/"
             full_url = f"https://{self.host}:{self.port}{test_url}"
-            async with asyncio.timeout(10):
+            async with asyncio.timeout(5):
                 async with self.session.get(full_url, ssl=self.ssl_context, allow_redirects=False) as resp:
                     if resp.status == 200 or resp.status in (401, 403):
                         self.is_udm = True
                         self.log.debug("Detected UniFi OS device (UDM or CGU) using /proxy/network/")
                         return
+        except aiohttp.ClientSSLError as ssl_err:
+            self.last_error = f"SSL error: {str(ssl_err)}"
+            self.log.error(self.last_error)
+            raise
         except Exception as e:
             self.log.warning(f"Controller detection failed: %s", e)
         
@@ -131,7 +135,7 @@ class UnifiAPClient:
         
         for attempt in range(3):  # Retry up to 3 times
             try:
-                async with asyncio.timeout(15):
+                async with asyncio.timeout(5):  # Reduced timeout for faster failure
                     async with self.session.request(
                         method,
                         full_url,
@@ -145,10 +149,27 @@ class UnifiAPClient:
                             await asyncio.sleep(result)  # Retry-After for 429
                             continue
                         return resp, result
+            except aiohttp.ClientSSLError as ssl_err:
+                self.last_error = f"SSL error: {str(ssl_err)}"
+                self.log.error("SSL error in request: %s", self.last_error)
+                await self.create_ssl_context()  # Recreate session
+                raise
             except asyncio.TimeoutError:
                 self.last_error = "Request timed out"
                 self.log.error("Request timed out: %s", full_url)
-                raise
+                await self.create_ssl_context()  # Recreate session
+                if attempt < 2:
+                    await asyncio.sleep(2)  # Short wait before retry
+                else:
+                    raise
+            except aiohttp.ClientConnectionError as e:
+                self.last_error = str(e)
+                self.log.error("Connection error: %s", e)
+                await self.create_ssl_context()  # Recreate session
+                if attempt < 2:
+                    await asyncio.sleep(2)
+                else:
+                    raise
             except Exception as e:
                 self.last_error = str(e)
                 self.log.error("Request failed: %s", e)
@@ -167,7 +188,17 @@ class UnifiAPClient:
             if self.session:
                 self.session.cookie_jar.clear()
             
-            await self._detect_controller_mode()
+            try:
+                await self._detect_controller_mode()
+            except aiohttp.ClientSSLError as ssl_err:
+                self.last_error = f"SSL error during controller detection: {str(ssl_err)}"
+                self.log.error(self.last_error)
+                raise
+            except Exception as e:
+                self.last_error = str(e)
+                self.log.error("Controller detection error: %s", e)
+                return False
+
             payload = {"username": self.username, "password": self.password}
             
             for attempt in range(2):  # Try current mode, then flip
@@ -203,6 +234,10 @@ class UnifiAPClient:
                     else:
                         self.last_error = f"Login failed with status {resp.status}"
                         _LOGGER.warning(self.last_error)
+                except aiohttp.ClientSSLError as ssl_err:
+                    self.last_error = f"SSL error during login: {str(ssl_err)}"
+                    _LOGGER.error(self.last_error)
+                    raise
                 except Exception as e:
                     self.last_error = str(e)
                     _LOGGER.error("Login error: %s", e)
@@ -255,6 +290,10 @@ class UnifiAPClient:
                             return version
                         
             return "Unknown"
+        except aiohttp.ClientSSLError as ssl_err:
+            self.last_error = f"SSL error getting controller version: {str(ssl_err)}"
+            self.log.error(self.last_error)
+            raise
         except Exception as e:
             self.log.error(f"Error getting controller version: %s", e)
             return "Unknown"
@@ -278,6 +317,10 @@ class UnifiAPClient:
                 if isinstance(data, dict) and "data" in data:
                     return data["data"]
             return []
+        except aiohttp.ClientSSLError as ssl_err:
+            self.last_error = f"SSL error getting sites: {str(ssl_err)}"
+            self.log.error(self.last_error)
+            raise
         except Exception:
             return []
 
@@ -295,8 +338,15 @@ class UnifiAPClient:
                 if isinstance(data, dict) and "data" in data:
                     return [d for d in data["data"] if d.get("type") == "uap"]
             return []
-        except Exception:
-            return []
+        except aiohttp.ClientSSLError as ssl_err:
+            self.last_error = f"SSL error getting devices: {str(ssl_err)}"
+            self.log.error(self.last_error)
+            raise
+        except Exception as e:
+            if "timeout" in str(e).lower() or "connect" in str(e).lower():
+                self.authenticated = False
+                await self.create_ssl_context()
+            raise
 
     async def flash_led(self, site_id: str, mac: str) -> bool:
         """Flash LED on specific AP"""
@@ -318,8 +368,15 @@ class UnifiAPClient:
             if resp.status == 200:
                 return isinstance(data, dict) and data.get("meta", {}).get("rc") == "ok"
             return False
-        except Exception:
-            return False
+        except aiohttp.ClientSSLError as ssl_err:
+            self.last_error = f"SSL error flashing LED: {str(ssl_err)}"
+            self.log.error(self.last_error)
+            raise
+        except Exception as e:
+            if "timeout" in str(e).lower() or "connect" in str(e).lower():
+                self.authenticated = False
+                await self.create_ssl_context()
+            raise
 
     async def stop_flash_led(self, site_id: str, mac: str) -> bool:
         """Stop flashing LED on specific AP"""
@@ -340,8 +397,15 @@ class UnifiAPClient:
             if resp.status == 200:
                 return isinstance(data, dict) and data.get("meta", {}).get("rc") == "ok"
             return False
-        except Exception:
-            return False
+        except aiohttp.ClientSSLError as ssl_err:
+            self.last_error = f"SSL error stopping LED flash: {str(ssl_err)}"
+            self.log.error(self.last_error)
+            raise
+        except Exception as e:
+            if "timeout" in str(e).lower() or "connect" in str(e).lower():
+                self.authenticated = False
+                await self.create_ssl_context()
+            raise
 
     async def set_led_state(self, site_id: str, device_id: str, state: bool) -> bool:
         """Set permanent LED state using device ID"""
@@ -358,8 +422,15 @@ class UnifiAPClient:
             if resp.status == 200:
                 return data.get("meta", {}).get("rc", "") == "ok"
             return False
-        except Exception:
-            return False
+        except aiohttp.ClientSSLError as ssl_err:
+            self.last_error = f"SSL error setting LED state: {str(ssl_err)}"
+            self.log.error(self.last_error)
+            raise
+        except Exception as e:
+            if "timeout" in str(e).lower() or "connect" in str(e).lower():
+                self.authenticated = False
+                await self.create_ssl_context()
+            raise
 
     async def close_session(self):
         if self.session:
