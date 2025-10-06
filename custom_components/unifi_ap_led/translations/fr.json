@@ -10,7 +10,7 @@
           "port": "Port (par défaut : 8443)",
           "verify_ssl": "Vérifier SSL"
         },
-        "description": "Note : Le nom du site est généralement 'default' sauf si vous avez plusieurs sites."
+        "description": "Remarque : Le nom du site est généralement 'default' sauf si vous avez plusieurs sites."
       },
       "select_site": {
         "title": "Sélectionner un site",
@@ -39,6 +39,13 @@
           "ap_mac": "Point d'accès"
         },
         "description": "Sélectionnez un point d'accès supplémentaire à contrôler."
+      },
+      "ssl_retry": {
+        "title": "Problème de vérification SSL",
+        "data": {
+          "retry_option": "Option de nouvelle tentative"
+        },
+        "description": "Le certificat SSL du contrôleur UniFi n'a pas pu être vérifié, probablement en raison d'un certificat auto-signé. {ssl_warning} Sélectionnez 'Oui' pour réessayer sans vérification SSL, ou 'Non' pour revenir au formulaire de configuration et ajuster vos paramètres."
       }
     },
     "error": {
@@ -48,12 +55,13 @@
       "no_aps": "Aucun point d'accès trouvé dans ce site",
       "no_new_aps": "Aucun point d'accès supplémentaire disponible",
       "no_aps_selected": "Veuillez sélectionner au moins un point d'accès",
-      "timeout": "Délai d'attente de la requête. Vérifiez la connexion de votre contrôleur.",
+      "timeout": "Délai d'attente dépassé. Vérifiez la connexion au contrôleur.",
       "connection_error": "Une erreur de connexion réseau s'est produite",
       "unknown": "Une erreur inconnue s'est produite",
-      "mfa_required": "Échec de l'authentification : Utilisez un compte administrateur local (Paramètres > Admins > Créer un admin local, sans MFA). Les comptes cloud (ui.com) avec MFA ne sont pas pris en charge.",
-      "rate_limit": "Limite de débit de l'API UniFi dépassée. Veuillez réessayer plus tard.",
-      "invalid_host": "Format d'hôte invalide. Utilisez une adresse IP (par ex., 192.168.1.1) ou un domaine (par ex., unifi.local)."
+      "rate_limit": "Limite de taux de l'API UniFi dépassée. Veuillez réessayer plus tard.",
+      "invalid_host": "Format d'hôte invalide. Utilisez une adresse IP (par ex. 192.168.1.1) ou un domaine (par ex. unifi.local).",
+      "mfa_required": "Échec d'authentification : Utilisez un compte administrateur local (Paramètres > Administrateurs > Créer un administrateur local - sans MFA). Les comptes cloud (ui.com) avec MFA ne sont pas pris en charge.",
+      "ssl_error": "Échec de la vérification SSL. Cela peut être dû à un certificat auto-signé. Vous pouvez réessayer avec la vérification SSL désactivée, mais cela est moins sécurisé."
     },
     "abort": {
       "no_aps": "Aucun point d'accès trouvé sur ce contrôleur",
@@ -77,8 +85,8 @@
       "cannot_connect": "Échec de la connexion au contrôleur UniFi",
       "no_new_aps": "Aucun point d'accès supplémentaire disponible",
       "already_configured": "Point d'accès déjà configuré",
-      "mfa_required": "Échec de l'authentification : Utilisez un compte administrateur local (Paramètres > Admins > Créer un admin local, sans MFA). Les comptes cloud (ui.com) avec MFA ne sont pas pris en charge.",
-      "rate_limit": "Limite de débit de l'API UniFi dépassée. Veuillez réessayer plus tard."
+      "rate_limit": "Limite de taux de l'API UniFi dépassée. Veuillez réessayer plus tard.",
+      "mfa_required": "Échec d'authentification : Utilisez un compte administrateur local (Paramètres > Administrateurs > Créer un administrateur local - sans MFA). Les comptes cloud (ui.com) avec MFA ne sont pas pris en charge."
     }
   }
 }
