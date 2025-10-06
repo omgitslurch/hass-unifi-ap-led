@@ -39,6 +39,13 @@
           "ap_mac": "Access Point"
         },
         "description": "Select an additional access point to control."
+      },
+      "ssl_retry": {
+        "title": "SSL Verification Issue",
+        "data": {
+          "retry_option": "Retry Option"
+        },
+        "description": "The SSL certificate of the UniFi controller could not be verified, likely due to a self-signed certificate. {ssl_warning} Select 'Yes' to retry without SSL verification, or 'No' to return to the setup form and adjust your settings."
       }
     },
     "error": {
@@ -53,7 +60,8 @@
       "unknown": "Unknown error occurred",
       "rate_limit": "UniFi API rate limit exceeded. Please try again later.",
       "invalid_host": "Invalid host format. Use an IP address (e.g., 192.168.1.1) or domain (e.g., unifi.local).",
-      "mfa_required": "Authentication failed: Use a local admin account (Settings > Admins > Create Local Admin—no MFA). Cloud accounts (ui.com) with MFA are not supported."
+      "mfa_required": "Authentication failed: Use a local admin account (Settings > Admins > Create Local Admin—no MFA). Cloud accounts (ui.com) with MFA are not supported.",
+      "ssl_error": "SSL verification failed. This may be due to a self-signed certificate. You can retry with SSL verification disabled, but this is less secure."
     },
     "abort": {
       "no_aps": "No access points found on this controller",
