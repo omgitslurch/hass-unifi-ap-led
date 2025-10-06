@@ -38,6 +38,9 @@ class UnifiAPCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("Update failed: %s. Retrying in %s seconds.", e, self.backoff_time)
             self.update_interval = timedelta(seconds=self.backoff_time)
             self.backoff_time = min(self.backoff_time * 2, self.max_backoff)  # Exponential backoff
+            if "timeout" in str(e).lower() or "connect" in str(e).lower():
+                self.client.authenticated = False
+                await self.client.create_ssl_context()
             raise UpdateFailed(f"Error communicating with UniFi controller: {e}") from e
 
     def get_device(self, mac_address: str) -> dict:
