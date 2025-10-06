@@ -66,31 +66,52 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await client.create_ssl_context()
 
                 if not await client.login():
-                    _LOGGER.warning("Login failed on port %s, trying fallback port 443 if applicable", port)
-
-                    # If the user used default port (8443), try fallback
-                    if port == DEFAULT_PORT:
+                    _LOGGER.warning("Login failed on port %s: %s", port, client.last_error)
+                    if "SSL error" in str(client.last_error):
+                        errors["base"] = "ssl_error"
+                        self.controller_data = {
+                            CONF_HOST: host,
+                            CONF_USERNAME: username,
+                            CONF_PASSWORD: password,
+                            CONF_PORT: port,
+                            CONF_VERIFY_SSL: verify_ssl
+                        }
                         await client.close_session()
-                        client = UnifiAPClient(
-                            host=host,
-                            port=443,
-                            username=username,
-                            password=password,
-                            verify_ssl=verify_ssl
-                        )
-                        await client.create_ssl_context()
+                        return await self.async_step_ssl_retry()
 
-                        if not await client.login():
-                            errors["base"] = "mfa_required" if "MFA required" in str(client.last_error) else ERRORS["invalid_auth"]
+                    # Try alternative port
+                    alt_port = 443 if port == DEFAULT_PORT else DEFAULT_PORT
+                    _LOGGER.info("Trying alternative port %s", alt_port)
+                    
+                    await client.close_session()
+                    client = UnifiAPClient(
+                        host=host,
+                        port=alt_port,
+                        username=username,
+                        password=password,
+                        verify_ssl=verify_ssl
+                    )
+                    await client.create_ssl_context()
+
+                    if not await client.login():
+                        _LOGGER.warning("Login failed on alternative port %s: %s", alt_port, client.last_error)
+                        if "SSL error" in str(client.last_error):
+                            errors["base"] = "ssl_error"
+                            self.controller_data = {
+                                CONF_HOST: host,
+                                CONF_USERNAME: username,
+                                CONF_PASSWORD: password,
+                                CONF_PORT: alt_port,
+                                CONF_VERIFY_SSL: verify_ssl
+                            }
                             await client.close_session()
-                            client = None
-                        else:
-                            _LOGGER.info("Login succeeded using fallback port 443")
-                            port = 443  # Update port to reflect fallback
-                    else:
+                            return await self.async_step_ssl_retry()
                         errors["base"] = "mfa_required" if "MFA required" in str(client.last_error) else ERRORS["invalid_auth"]
                         await client.close_session()
                         client = None
+                    else:
+                        _LOGGER.info("Login succeeded using alternative port %s", alt_port)
+                        port = alt_port  # Update port to reflect fallback
 
                 if client:
                     self.sites = await client.get_sites()
@@ -109,28 +130,137 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     await client.close_session()
                     self.client = None
 
-            except aiohttp.ClientError:
+            except aiohttp.ClientSSLError as ssl_err:
+                _LOGGER.error("SSL error connecting to UniFi controller: %s", ssl_err)
+                errors["base"] = "ssl_error"
+                self.controller_data = {
+                    CONF_HOST: host,
+                    CONF_USERNAME: username,
+                    CONF_PASSWORD: password,
+                    CONF_PORT: port,
+                    CONF_VERIFY_SSL: verify_ssl
+                }
+                if client:
+                    await client.close_session()
+                return await self.async_step_ssl_retry()
+            except aiohttp.ClientError as e:
+                _LOGGER.error("Client error connecting to UniFi controller: %s", e)
                 errors["base"] = ERRORS["cannot_connect"]
             except Exception as e:
                 _LOGGER.error("Connection error: %s", e, exc_info=True)
                 errors["base"] = ERRORS["cannot_connect"]
             finally:
-                if errors and client:
+                if errors and client and "ssl_error" not in errors:
                     try:
                         await client.close_session()
                     except Exception as e:
                         _LOGGER.error("Error closing client: %s", e)
 
+        # Pre-fill form with stored credentials if available
+        data_schema = vol.Schema({
+            vol.Required(CONF_HOST, default=self.controller_data.get(CONF_HOST, "")): str,
+            vol.Required(CONF_USERNAME, default=self.controller_data.get(CONF_USERNAME, "")): str,
+            vol.Required(CONF_PASSWORD, default=self.controller_data.get(CONF_PASSWORD, "")): str,
+            vol.Optional(CONF_PORT, default=self.controller_data.get(CONF_PORT, DEFAULT_PORT)): int,
+            vol.Optional(CONF_VERIFY_SSL, default=self.controller_data.get(CONF_VERIFY_SSL, True)): bool
+        })
+
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({
-                vol.Required(CONF_HOST): str,
-                vol.Required(CONF_USERNAME): str,
-                vol.Required(CONF_PASSWORD): str,
-                vol.Optional(CONF_PORT, default=DEFAULT_PORT): int,
-                vol.Optional(CONF_VERIFY_SSL, default=True): bool
-            }),
+            data_schema=data_schema,
             errors=errors
+        )
+
+    async def async_step_ssl_retry(self, user_input=None):
+        """Prompt user to retry with SSL verification disabled or return to initial form."""
+        errors = {}
+        if user_input is not None:
+            retry_option = user_input.get("retry_option")
+
+            if retry_option == "no":
+                _LOGGER.info("User chose not to retry with SSL verification disabled; returning to user step")
+                return await self.async_step_user()
+
+            # Retry with verify_ssl=False
+            _LOGGER.info("Retrying with SSL verification disabled on port %s", self.controller_data[CONF_PORT])
+            self.controller_data[CONF_VERIFY_SSL] = False
+
+            try:
+                # Ensure client is fully reset
+                if self.client:
+                    await self.client.close_session()
+                    self.client = None
+
+                client = UnifiAPClient(
+                    host=self.controller_data[CONF_HOST],
+                    port=self.controller_data[CONF_PORT],
+                    username=self.controller_data[CONF_USERNAME],
+                    password=self.controller_data[CONF_PASSWORD],
+                    verify_ssl=False
+                )
+                await client.create_ssl_context()
+
+                if not await client.login():
+                    _LOGGER.warning("Login failed on port %s: %s", self.controller_data[CONF_PORT], client.last_error)
+                    errors["base"] = "mfa_required" if "MFA required" in str(client.last_error) else ERRORS["invalid_auth"]
+                    await client.close_session()
+                    return self.async_show_form(
+                        step_id="ssl_retry",
+                        data_schema=vol.Schema({
+                            vol.Required("retry_option"): selector.SelectSelector(
+                                selector.SelectSelectorConfig(
+                                    options=[
+                                        selector.SelectOptionDict(value="yes", label="Yes, retry without SSL verification"),
+                                        selector.SelectOptionDict(value="no", label="No, return to initial setup")
+                                    ],
+                                    translation_key="retry_option"
+                                )
+                            )
+                        }),
+                        errors=errors,
+                        description_placeholders={
+                            "ssl_warning": "Disabling SSL verification is insecure and should only be used if you trust your network."
+                        }
+                    )
+
+                self.client = client
+                self.sites = await client.get_sites()
+
+                if self.sites:
+                    return await self.async_step_select_site()
+                errors["base"] = ERRORS["no_sites"]
+                await client.close_session()
+                self.client = None
+
+            except aiohttp.ClientError as e:
+                _LOGGER.error("Client error on retry with SSL disabled: %s", e)
+                errors["base"] = ERRORS["cannot_connect"]
+            except Exception as e:
+                _LOGGER.error("Unexpected error on retry with SSL disabled: %s", e, exc_info=True)
+                errors["base"] = ERRORS["cannot_connect"]
+            finally:
+                if errors and self.client:
+                    await self.client.close_session()
+                    self.client = None
+
+        _LOGGER.debug("Rendering ssl_retry form with retry_option selector. Translation key: retry_option")
+        return self.async_show_form(
+            step_id="ssl_retry",
+            data_schema=vol.Schema({
+                vol.Required("retry_option"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value="yes", label="Yes, retry without SSL verification"),
+                            selector.SelectOptionDict(value="no", label="No, return to initial setup")
+                        ],
+                        translation_key="retry_option" 
+                    )
+                )
+            }),
+            errors=errors,
+            description_placeholders={
+                "ssl_warning": "Disabling SSL verification is insecure and should only be used if you trust your network."
+            }
         )
 
     async def async_step_select_site(self, user_input=None):
@@ -319,7 +449,7 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         ap_options = {
             device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model_display') or device.get('model', 'AP')})"
             for device in self.ap_devices
-            if device.get("mac") and device["mac"] not in configured_aps
+            if device["mac"] and device["mac"] not in configured_aps
         }
         
         if not ap_options:
@@ -354,14 +484,16 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
 
             return self.async_create_entry(title=new_title, data=current_data)
         
+        ap_options = {
+            device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model_display') or device.get('model', 'AP')})"
+            for device in self.ap_devices
+            if device["mac"] not in configured_aps
+        }
+        
         return self.async_show_form(
             step_id="add_ap",
             data_schema=vol.Schema({
-                vol.Required(CONF_AP_MAC): vol.In({
-                    device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model_display') or device.get('model', 'AP')})"
-                    for device in self.ap_devices
-                    if device["mac"] not in configured_aps
-                })
+                vol.Required(CONF_AP_MAC): vol.In(ap_options)
             }),
             description_placeholders={"description": "Add more APs to this site."},
             errors=errors
