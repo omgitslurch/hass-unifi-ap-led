@@ -20,7 +20,8 @@ ERRORS = {
     "no_aps_selected": "no_aps_selected",
     "rate_limit": "rate_limit",
     "mfa_required": "mfa_required",
-    "invalid_host": "invalid_host"
+    "invalid_host": "invalid_host",
+    "ssl_error": "ssl_error"
 }
 
 DEFAULT_PORT = 8443
