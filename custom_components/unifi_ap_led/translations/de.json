@@ -2,22 +2,22 @@
   "config": {
     "step": {
       "user": {
-        "title": "UniFi-Controller-Einrichtung",
+        "title": "UniFi Controller-Einrichtung",
         "data": {
-          "host": "Controller-Host/IP",
+          "host": "Controller Host/IP",
           "username": "Benutzername",
           "password": "Passwort",
           "port": "Port (Standard: 8443)",
           "verify_ssl": "SSL überprüfen"
         },
-        "description": "Hinweis: Der Site-Name ist normalerweise 'default', es sei denn, Sie haben mehrere Sites."
+        "description": "Hinweis: Der Standortname ist normalerweise 'default', es sei denn, Sie haben mehrere Standorte."
       },
       "select_site": {
-        "title": "Site auswählen",
+        "title": "Standort auswählen",
         "data": {
-          "site_id": "Site"
+          "site_id": "Standort"
         },
-        "description": "{site_count} Site(s) gefunden. Wählen Sie die Site aus, die Ihre Access Points enthält."
+        "description": "{site_count} Standort(e) gefunden. Wählen Sie den Standort mit Ihren Access Points aus."
       },
       "select_aps": {
         "title": "Access Points auswählen",
@@ -38,29 +38,37 @@
         "data": {
           "ap_mac": "Access Point"
         },
-        "description": "Wählen Sie einen zusätzlichen Access Point aus, den Sie steuern möchten."
+        "description": "Wählen Sie einen zusätzlichen Access Point zur Steuerung aus."
+      },
+      "ssl_retry": {
+        "title": "SSL-Überprüfungsproblem",
+        "data": {
+          "retry_option": "Wiederholungsoption"
+        },
+        "description": "Das SSL-Zertifikat des UniFi-Controllers konnte nicht überprüft werden, wahrscheinlich aufgrund eines selbstsignierten Zertifikats. {ssl_warning} Wählen Sie 'Ja' zum erneuten Versuch ohne SSL-Überprüfung oder 'Nein', um zum Einrichtungsformular zurückzukehren und Ihre Einstellungen anzupassen."
       }
     },
     "error": {
       "cannot_connect": "Verbindung zum UniFi-Controller fehlgeschlagen",
       "invalid_auth": "Ungültige Authentifizierung",
-      "no_sites": "Keine Sites auf diesem Controller gefunden",
-      "no_aps": "Keine Access Points in dieser Site gefunden",
+      "no_sites": "Keine Standorte auf diesem Controller gefunden",
+      "no_aps": "Keine Access Points in diesem Standort gefunden",
       "no_new_aps": "Keine zusätzlichen Access Points verfügbar",
       "no_aps_selected": "Bitte wählen Sie mindestens einen Access Point aus",
-      "timeout": "Anfragezeitüberschreitung. Überprüfen Sie Ihre Controller-Verbindung.",
+      "timeout": "Anfragezeitüberschreitung. Überprüfen Sie die Verbindung zum Controller.",
       "connection_error": "Netzwerkverbindungsfehler aufgetreten",
       "unknown": "Unbekannter Fehler aufgetreten",
-      "mfa_required": "Authentifizierung fehlgeschlagen: Verwenden Sie ein lokales Admin-Konto (Einstellungen > Admins > Lokalen Admin erstellen – kein MFA). Cloud-Konten (ui.com) mit MFA werden nicht unterstützt.",
-      "rate_limit": "UniFi-API-Ratenbegrenzung überschritten. Bitte versuchen Sie es später erneut.",
-      "invalid_host": "Ungültiges Host-Format. Verwenden Sie eine IP-Adresse (z. B. 192.168.1.1) oder eine Domäne (z. B. unifi.local)."
+      "rate_limit": "UniFi-API-Ratenlimit überschritten. Bitte versuchen Sie es später noch einmal.",
+      "invalid_host": "Ungültiges Host-Format. Verwenden Sie eine IP-Adresse (z. B. 192.168.1.1) oder eine Domain (z. B. unifi.local).",
+      "mfa_required": "Authentifizierung fehlgeschlagen: Verwenden Sie ein lokales Admin-Konto (Einstellungen > Admins > Lokalen Admin erstellen – keine MFA). Cloud-Konten (ui.com) mit MFA werden nicht unterstützt.",
+      "ssl_error": "SSL-Überprüfung fehlgeschlagen. Dies kann auf ein selbstsigniertes Zertifikat zurückzuführen sein. Sie können mit deaktivierter SSL-Überprüfung erneut versuchen, aber das ist weniger sicher."
     },
     "abort": {
       "no_aps": "Keine Access Points auf diesem Controller gefunden",
       "no_new_aps": "Keine zusätzlichen Access Points verfügbar"
     },
     "progress": {
-      "creating_entries": "Konfigurationseinträge werden erstellt"
+      "creating_entries": "Erstelle Konfigurationseinträge"
     }
   },
   "options": {
@@ -70,15 +78,15 @@
         "data": {
           "ap_mac": "Access Point"
         },
-        "description": "Wählen Sie einen zusätzlichen Access Point aus, den Sie steuern möchten."
+        "description": "Wählen Sie einen zusätzlichen Access Point zur Steuerung aus."
       }
     },
     "error": {
       "cannot_connect": "Verbindung zum UniFi-Controller fehlgeschlagen",
       "no_new_aps": "Keine zusätzlichen Access Points verfügbar",
       "already_configured": "Access Point bereits konfiguriert",
-      "mfa_required": "Authentifizierung fehlgeschlagen: Verwenden Sie ein lokales Admin-Konto (Einstellungen > Admins > Lokalen Admin erstellen – kein MFA). Cloud-Konten (ui.com) mit MFA werden nicht unterstützt.",
-      "rate_limit": "UniFi-API-Ratenbegrenzung überschritten. Bitte versuchen Sie es später erneut."
+      "rate_limit": "UniFi-API-Ratenlimit überschritten. Bitte versuchen Sie es später noch einmal.",
+      "mfa_required": "Authentifizierung fehlgeschlagen: Verwenden Sie ein lokales Admin-Konto (Einstellungen > Admins > Lokalen Admin erstellen – keine MFA). Cloud-Konten (ui.com) mit MFA werden nicht unterstützt."
     }
   }
 }
