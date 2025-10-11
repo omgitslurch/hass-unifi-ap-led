@@ -10,16 +10,16 @@ from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import selector
 from .const import (
-    DOMAIN, CONF_SITE_ID, CONF_SITE_NAME, CONF_AP_MAC, 
+    DOMAIN, CONF_SITE_ID, CONF_SITE_NAME, 
     CONF_VERIFY_SSL, CONF_PORT, DEFAULT_PORT, ERRORS,
-    CONF_AP_MACS
+    CONF_AP_MACS, CONF_API_BASE_PATH, CONF_IS_UNIFI_OS, CONF_LOGIN_ENDPOINT
 )
 from .client import UnifiAPClient
 
 _LOGGER = logging.getLogger(__name__)
 
 class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 2  # Bumped for migration
+    VERSION = 4  # Bumped for connection method storage
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     def __init__(self):
@@ -346,12 +346,15 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         site_name = self.controller_data.get(CONF_SITE_NAME, self.selected_site)
 
-        # Single data with list of MACs
+        # Single data with list of MACs and connection method
         data = {
             **self.controller_data,
             CONF_SITE_ID: self.selected_site,
-            CONF_AP_MACS: self.selected_aps,  # List
-            CONF_SITE_NAME: site_name
+            CONF_AP_MACS: self.selected_aps,
+            CONF_SITE_NAME: site_name,
+            CONF_API_BASE_PATH: self.client.api_base_path,
+            CONF_IS_UNIFI_OS: self.client.is_unifi_os,
+            CONF_LOGIN_ENDPOINT: self.client.successful_login_endpoint or "api/auth/login"
         }
 
         # Unique ID for the site/integration
@@ -371,29 +374,6 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await self.client.close_session()
 
         return entry
-
-    async def async_step_select_ap(self, user_input=None):
-        """Select single Access Point to control (backward compatibility)."""
-        if user_input is not None:
-            self.selected_aps = [user_input[CONF_AP_MAC]]
-            return await self.async_step_create_entry()
-
-        ap_options = {
-            device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model', 'AP')})"
-            for device in self.ap_devices
-            if device.get("mac")
-        }
-        
-        if not ap_options:
-            return self.async_abort(reason=ERRORS["no_aps"])
-        
-        return self.async_show_form(
-            step_id="select_ap",
-            data_schema=vol.Schema({
-                vol.Required(CONF_AP_MAC): vol.In(ap_options)
-            }),
-            description_placeholders={"ap_count": len(ap_options)}
-        )
 
     async def async_step_cancel(self, user_input=None):
         """Handle flow cancellation."""
@@ -426,7 +406,10 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
             port=data.get(CONF_PORT, DEFAULT_PORT),
             username=data[CONF_USERNAME],
             password=data[CONF_PASSWORD],
-            verify_ssl=data.get(CONF_VERIFY_SSL, True)
+            verify_ssl=data.get(CONF_VERIFY_SSL, True),
+            stored_api_base_path=data.get(CONF_API_BASE_PATH),
+            stored_is_unifi_os=data.get(CONF_IS_UNIFI_OS, False),
+            stored_login_endpoint=data.get(CONF_LOGIN_ENDPOINT)
         )
         
         try:
@@ -444,7 +427,7 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
             _LOGGER.error("Error fetching devices: %s", e, exc_info=True)
             return self.async_abort(reason=ERRORS["cannot_connect"])
         
-        configured_aps = data.get(CONF_AP_MACS, [data.get(CONF_AP_MAC)]) if data.get(CONF_AP_MACS) else [data.get(CONF_AP_MAC)]
+        configured_aps = data.get(CONF_AP_MACS, [])
         
         ap_options = {
             device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model_display') or device.get('model', 'AP')})"
@@ -464,9 +447,8 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
             new_mac = user_input[CONF_AP_MAC]
             # Load current data
             current_data = dict(self.config_entry.data)
-            current_macs = current_data.get(CONF_AP_MACS) or [current_data.get(CONF_AP_MAC)]
-            if isinstance(current_macs, str):  # Legacy single
-                current_macs = [current_macs]
+            current_macs = current_data.get(CONF_AP_MACS, [])
+            
             if new_mac in current_macs:
                 return self.async_abort(reason="already_configured")
 
