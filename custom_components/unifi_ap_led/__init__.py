@@ -7,7 +7,7 @@ from .client import UnifiAPClient
 from .const import (
     DOMAIN, CONF_HOST, CONF_USERNAME, CONF_PASSWORD, 
     CONF_SITE_ID, CONF_PORT, DEFAULT_PORT, CONF_VERIFY_SSL,
-    CONF_AP_MAC, CONF_AP_MACS, CONF_SITE_NAME
+    CONF_AP_MACS, CONF_SITE_NAME
 )
 from .coordinator import UnifiAPCoordinator
 
@@ -15,40 +15,22 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["light", "button"]
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migrate old single-AP entries to multi-AP format."""
-    _LOGGER.debug("Migrating entry %s (version %s)", entry.entry_id, entry.version)
-    if entry.version < 2:  # Bump version for migration
-        data = dict(entry.data)
-        # Find all entries for same host/site
-        same_site_entries = [
-            e for e in hass.config_entries.async_entries(DOMAIN)
-            if e.entry_id != entry.entry_id
-            and e.data.get(CONF_HOST) == data[CONF_HOST]
-            and e.data.get(CONF_SITE_ID) == data[CONF_SITE_ID]
-        ]
-
-        if same_site_entries:
-            _LOGGER.info("Found %d entries for same host/site, consolidating", len(same_site_entries))
-            ap_macs = [data.get(CONF_AP_MAC)] if data.get(CONF_AP_MAC) else data.get(CONF_AP_MACS, [])
-            for other_entry in same_site_entries:
-                other_data = other_entry.data
-                other_mac = other_data.get(CONF_AP_MAC)
-                if other_mac and other_mac not in ap_macs:
-                    ap_macs.append(other_mac)
-                # Schedule removal of old entry
-                hass.async_create_task(hass.config_entries.async_remove(other_entry.entry_id))
-
-            # Update this entry
-            data[CONF_AP_MACS] = ap_macs
-            ap_count = len(ap_macs)
-            site_name = data.get(CONF_SITE_NAME, data[CONF_SITE_ID])
-            data[CONF_PORT] = data.get(CONF_PORT, DEFAULT_PORT)  # Ensure port
-            new_title = f"UniFi AP LEDs ({data[CONF_HOST]}, {ap_count} AP{'s' if ap_count > 1 else ''}) - {site_name}"
-            hass.config_entries.async_update_entry(
-                entry, data=data, title=new_title, version=2
-            )
-            _LOGGER.info("Migrated entry to version 2 with %d APs", ap_count)
-
+    """Migrate config entry to current version."""
+    _LOGGER.debug("Migrating entry %s from version %s", entry.entry_id, entry.version)
+    
+    if entry.version == 1:
+        _LOGGER.error(
+            "Config entry %s (version 1) is too old and cannot be automatically migrated. "
+            "Please remove and re-add the integration through the UI.",
+            entry.title
+        )
+        return False
+    
+    if entry.version == 2:
+        hass.config_entries.async_update_entry(entry, version=3)
+        _LOGGER.info("Successfully migrated entry %s from version 2 to 3", entry.title)
+        return True
+    
     return True
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
@@ -58,13 +40,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     try:
         data = dict(entry.data)
 
-        # Backward compatibility: single AP -> list
-        ap_macs = data.get(CONF_AP_MACS)
-        if not ap_macs and CONF_AP_MAC in data:
-            ap_macs = [data[CONF_AP_MAC]]
-            data[CONF_AP_MACS] = ap_macs
-            _LOGGER.info("Migrated single AP to multi-AP format: %s", ap_macs)
+        ap_macs = data.get(CONF_AP_MACS, [])
+        ap_macs = [mac.lower() for mac in ap_macs if mac]
 
+        if not ap_macs:
+            _LOGGER.error("No valid AP MAC addresses found in configuration")
+            return False
+
+        # Use simple client without stored connection method
         client = UnifiAPClient(
             host=data[CONF_HOST],
             port=data.get(CONF_PORT, DEFAULT_PORT),
@@ -74,13 +57,48 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         )
 
         await client.create_ssl_context()
-        if not await client.login():
-            _LOGGER.error("Failed to login to UniFi controller")
-            return False
+        
+        # Test connection with retry
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                if not await client.login():
+                    _LOGGER.error("Failed to login to UniFi controller (attempt %s/%s)", attempt + 1, max_retries)
+                    if attempt == max_retries - 1:
+                        return False
+                    await asyncio.sleep(2)
+                    continue
+                break
+            except Exception as login_error:
+                _LOGGER.error("Login error (attempt %s/%s): %s", attempt + 1, max_retries, login_error)
+                if attempt == max_retries - 1:
+                    return False
+                await asyncio.sleep(2)
 
         devices = await client.get_devices(data[CONF_SITE_ID])
+        _LOGGER.debug("Retrieved %s total devices from controller", len(devices))
+        
         if not devices:
-            _LOGGER.error("No devices found for site %s", data[CONF_SITE_ID])
+            _LOGGER.error(
+                "No UAP devices found for site %s. "
+                "Please check that: "
+                "1) The site ID '%s' is correct, "
+                "2) There are UniFi Access Points in this site, "
+                "3) The user has permission to access this site",
+                data[CONF_SITE_ID], data[CONF_SITE_ID]
+            )
+            return False
+
+        # Filter to only configured APs that exist
+        valid_ap_macs = []
+        for ap_mac in ap_macs:
+            if any(device.get("mac", "").lower() == ap_mac for device in devices):
+                valid_ap_macs.append(ap_mac)
+            else:
+                _LOGGER.warning("Configured AP %s not found in controller", ap_mac)
+
+        if not valid_ap_macs:
+            _LOGGER.error("None of the configured APs were found in the controller")
             return False
 
         coordinator = UnifiAPCoordinator(hass, client, data[CONF_SITE_ID])
@@ -102,7 +120,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         )
 
         ap_device_ids = []
-        for ap_mac in ap_macs:
+        for ap_mac in valid_ap_macs:
             try:
                 ap_data = coordinator.get_device(ap_mac)
                 if not ap_data:
@@ -123,15 +141,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                     via_device=(DOMAIN, controller_identifier)
                 )
                 ap_device_ids.append(ap_device.id)
+                _LOGGER.info("Successfully set up AP: %s (%s)", ap_name, ap_mac)
             except Exception as ap_err:
                 _LOGGER.warning("Failed to create device for AP %s: %s", ap_mac, ap_err)
-                continue  # Isolates failures
+                continue
 
         if not ap_device_ids:
             _LOGGER.error("No valid APs could be set up")
             return False
 
-        # Store the final device info
         hass.data.setdefault(DOMAIN, {})
         hass.data[DOMAIN][entry.entry_id] = {
             "client": client,
@@ -140,12 +158,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             "controller_device_id": controller_device.id,
             "ap_device_ids": ap_device_ids
         }
-
-        # Update config entry title if needed
-        new_title = f"UniFi AP LEDs ({data[CONF_HOST]}, {len(ap_macs)} AP{'s' if len(ap_macs) > 1 else ''}) - {site_name_display}"
-        if entry.title != new_title:
-            hass.config_entries.async_update_entry(entry, title=new_title)
-            _LOGGER.debug("Updated config entry title to: %s", new_title)
 
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -164,7 +176,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     if unload_ok and DOMAIN in hass.data and entry.entry_id in hass.data[DOMAIN]:
         entry_data = hass.data[DOMAIN].pop(entry.entry_id)
 
-        # Close client session
         client = entry_data.get("client")
         if client:
             await client.close_session()
@@ -176,12 +187,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 
         remove_tasks = []
 
-        # Remove AP devices
         for ap_id in ap_device_ids:
             if device_registry.async_get(ap_id):
                 remove_tasks.append(device_registry.async_remove_device(ap_id))
 
-        # Remove controller device
         if controller_device_id and device_registry.async_get(controller_device_id):
             remove_tasks.append(device_registry.async_remove_device(controller_device_id))
 
