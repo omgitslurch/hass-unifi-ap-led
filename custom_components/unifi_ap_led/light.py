@@ -3,7 +3,7 @@ from homeassistant.components.light import LightEntity, ColorMode
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from .const import DOMAIN, CONF_SITE_NAME, CONF_AP_MAC, CONF_AP_MACS
+from .const import DOMAIN, CONF_SITE_NAME, CONF_AP_MACS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -16,18 +16,19 @@ async def async_setup_entry(
     coordinator = entry_data["coordinator"]
     site_name = entry.data.get(CONF_SITE_NAME, "UniFi Site")
 
-    ap_macs = entry.data.get(CONF_AP_MACS, [entry.data.get(CONF_AP_MAC)]) if entry.data.get(CONF_AP_MACS) else [entry.data.get(CONF_AP_MAC)]
+    ap_macs = entry.data.get(CONF_AP_MACS, [])
+    
     if not ap_macs:
-        # Fallback for old config entries
-        ap_macs = [entry.data.get(CONF_AP_MAC)]
+        _LOGGER.error("No AP MAC addresses found in config entry")
+        return
 
     entities = []
     for ap_mac in ap_macs:
         device = coordinator.get_device(ap_mac)
         if not device:
-            _LOGGER.warning("Device %s not found in coordinator", ap_mac)
+            _LOGGER.warning("Device %s not found in coordinator data", ap_mac)
             continue
-        entities.append(UnifiLedLight(coordinator, device, site_name))
+        entities.append(UnifiLedLight(coordinator, ap_mac, site_name))
 
     if not entities:
         _LOGGER.error("No valid APs found to create light entities")
@@ -36,108 +37,121 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 class UnifiLedLight(LightEntity):
-
     _attr_has_entity_name = True
     _attr_name = "LED"
     _attr_icon = "mdi:led-outline"
     _attr_supported_color_modes = {ColorMode.ONOFF}
     _attr_color_mode = ColorMode.ONOFF
     
-    def __init__(self, coordinator, device, site_name):
+    def __init__(self, coordinator, ap_mac, site_name):
         self.coordinator = coordinator
-        self.device = device
-        self._ap_mac = device["mac"]
+        self._ap_mac = ap_mac.lower()
         self._site_name = site_name
         self._attr_unique_id = f"unifi_led_{self._ap_mac}"
         self._attr_available = True
         self._state = None
-        self._last_command_time = 0
+        self._pending_command = False
+        self._command_state = None
 
     async def async_added_to_hass(self):
-        """Subscribe to updates"""
+        """Subscribe to updates."""
         self.async_on_remove(
             self.coordinator.async_add_listener(
-                self.async_write_ha_state
+                self._handle_coordinator_update
             )
         )
-        await self.async_update_ha_state(True)
+        self._handle_coordinator_update()
 
-    async def async_update(self):
-        """Update LED state from controller."""
-        try:
-            # Skip update if we recently sent a command
-            if hasattr(self, '_last_command_time'):
-                current_time = self.hass.loop.time()
-                if current_time - self._last_command_time < 5:
-                    return
-            
-            device = self.coordinator.get_device(self._ap_mac)
-            if device:
-                led_override = device.get("led_override")
-                self._state = led_override in ["on", True]
-                self._attr_available = True
-            else:
-                self._attr_available = False
-        except Exception as e:
-            _LOGGER.error("Error updating state: %s", e, exc_info=True)
+    def _handle_coordinator_update(self):
+        """Handle updated data from the coordinator."""
+        device = self.coordinator.get_device(self._ap_mac)
+        
+        if not device:
             self._attr_available = False
+            _LOGGER.warning("Device %s not found in coordinator update", self._ap_mac)
+        else:
+            self._attr_available = True
+            # Only update state if we don't have a pending command
+            if not self._pending_command:
+                led_override = device.get("led_override")
+                # Handle different response formats
+                if led_override == "on" or led_override is True:
+                    self._state = True
+                elif led_override == "off" or led_override is False:
+                    self._state = False
+                else:
+                    # Default to off if not specified
+                    self._state = False
+                
+                _LOGGER.debug("Updated state for %s: %s (led_override: %s)", 
+                             self._ap_mac, self._state, led_override)
+        
+        self.async_write_ha_state()
 
     @property
     def is_on(self):
+        """Return true if light is on."""
         return self._state
 
     async def async_turn_on(self, **kwargs):
-        """Turn the LED on"""
-        if not self.device.get("_id"):
-            _LOGGER.error("Device ID unknown for %s", self._ap_mac)
-            return
-            
-        self._state = True
-        self._last_command_time = self.hass.loop.time()
-        self.async_write_ha_state()
-        
-        success = await self.coordinator.client.set_led_state(
-            self.coordinator.site_id, 
-            self.device["_id"], 
-            True
-        )
-        if success:
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to turn on LED for %s", self._ap_mac)
-            self._state = False
-            self.async_write_ha_state()
+        """Turn the LED on."""
+        await self._send_led_command(True)
 
     async def async_turn_off(self, **kwargs):
-        """Turn the LED off"""
-        if not self.device.get("_id"):
-            _LOGGER.error("Device ID unknown for %s", self._ap_mac)
-            return
-            
-        self._state = False
-        self._last_command_time = self.hass.loop.time()
+        """Turn the LED off."""
+        await self._send_led_command(False)
+
+    async def _send_led_command(self, state: bool):
+        """Send LED command to UniFi controller."""
+        self._pending_command = True
+        self._command_state = state
+        self._state = state  # Optimistic update
         self.async_write_ha_state()
         
-        success = await self.coordinator.client.set_led_state(
-            self.coordinator.site_id, 
-            self.device["_id"], 
-            False
-        )
-        if success:
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to turn off LED for %s", self._ap_mac)
-            self._state = True
+        try:
+            success = await self.coordinator.client.set_led_state(
+                self.coordinator.site_id, 
+                self._ap_mac,
+                state
+            )
+            
+            if success:
+                _LOGGER.debug("Successfully set LED state to %s for %s", state, self._ap_mac)
+                # Refresh coordinator to get actual state
+                await self.coordinator.async_request_refresh()
+            else:
+                _LOGGER.error("Failed to set LED state to %s for %s", state, self._ap_mac)
+                # Revert optimistic update on failure
+                self._state = not state
+                
+        except Exception as e:
+            _LOGGER.error("Error setting LED state for %s: %s", self._ap_mac, e)
+            # Revert optimistic update on error
+            self._state = not state
+        finally:
+            self._pending_command = False
+            self._command_state = None
             self.async_write_ha_state()
 
     @property
     def device_info(self):
-        model = self.device.get("model", "Unknown")
-        name = self.device.get("name", f"UniFi AP {self._ap_mac}")
-        return {
-            "identifiers": {(DOMAIN, self._ap_mac)},
-            "name": name,
-            "manufacturer": "Ubiquiti",
-            "model": model,
-            "sw_version": self.device.get("version", "Unknown")
-        }
+        """Return device info for the AP."""
+        device = self.coordinator.get_device(self._ap_mac)
+        if device:
+            model = device.get("model", "Unknown")
+            name = device.get("name", f"UniFi AP {self._ap_mac}")
+            return {
+                "identifiers": {(DOMAIN, self._ap_mac)},
+                "name": name,
+                "manufacturer": "Ubiquiti",
+                "model": model,
+                "sw_version": device.get("version", "Unknown")
+            }
+        else:
+            # Fallback if device not in coordinator
+            return {
+                "identifiers": {(DOMAIN, self._ap_mac)},
+                "name": f"UniFi AP {self._ap_mac}",
+                "manufacturer": "Ubiquiti",
+                "model": "Unknown"
+            }
