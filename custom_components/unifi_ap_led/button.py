@@ -4,7 +4,7 @@ from homeassistant.components.button import ButtonEntity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from .const import DOMAIN, CONF_AP_MAC, CONF_AP_MACS
+from .const import DOMAIN, CONF_AP_MACS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -16,10 +16,11 @@ async def async_setup_entry(
     entry_data = hass.data[DOMAIN][entry.entry_id]
     coordinator = entry_data["coordinator"]
 
-    ap_macs = entry.data.get(CONF_AP_MACS, [entry.data.get(CONF_AP_MAC)]) if entry.data.get(CONF_AP_MACS) else [entry.data.get(CONF_AP_MAC)]
+    ap_macs = entry.data.get(CONF_AP_MACS, [])
+    
     if not ap_macs:
-        # Fallback for legacy entries
-        ap_macs = [entry.data.get(CONF_AP_MAC)]
+        _LOGGER.error("No AP MAC addresses found in config entry")
+        return
 
     entities = []
     for ap_mac in ap_macs:
