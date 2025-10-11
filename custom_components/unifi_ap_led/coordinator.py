@@ -6,47 +6,89 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 class UnifiAPCoordinator(DataUpdateCoordinator):
-    """Coordinator for UniFi device data"""
+    """Coordinator for UniFi device data with robust connection recovery"""
     
     def __init__(self, hass, client, site_id):
         super().__init__(
             hass,
-            _LOGGER,
+            _LOGGER,  # This gets passed to the base class
             name=f"{DOMAIN} ({site_id})",
-            update_interval=timedelta(seconds=30),  # Increased from 10s for efficiency
+            update_interval=timedelta(seconds=30),
         )
         self.client = client
         self.site_id = site_id
-        self.devices = {}  # Cache as dict for faster lookups
-        self.backoff_time = 30  # Initial backoff in seconds
-        self.max_backoff = 300  # Max 5 minutes
+        self.devices = {}
+        self.backoff_time = 30
+        self.max_backoff = 300
+        self.consecutive_failures = 0
+        self.max_consecutive_failures = 5
 
     async def _async_update_data(self):
-        """Fetch device data for UAP-type devices only."""
+        """Fetch device data with robust error handling and recovery."""
         try:
-            # Reset backoff on success
+            # Reset failure counter on success
+            self.consecutive_failures = 0
             self.backoff_time = 30
             self.update_interval = timedelta(seconds=30)
+            
+            # Ensure client is properly authenticated and connected
+            if not self.client.authenticated:
+                _LOGGER.info("Client not authenticated, attempting login...")
+                if not await self.client.login():
+                    raise UpdateFailed("Failed to authenticate with UniFi controller")
+            
             devices = await self.client.get_devices(self.site_id)
+            
             # Cache only UAP devices as dict with MAC as key
-            self.devices = {
-                d["mac"].lower(): d for d in devices
-                if d.get("type") == "uap" and d.get("mac")
-            }
-            return list(self.devices.values())  # Return list for backward compatibility
+            new_devices = {}
+            for device in devices:
+                if device.get("type") == "uap" and device.get("mac"):
+                    mac = device["mac"].lower()
+                    new_devices[mac] = device
+            
+            self.devices = new_devices
+            
+            if not self.devices:
+                _LOGGER.warning("No UAP devices found for site %s", self.site_id)
+                
+            _LOGGER.debug("Successfully updated %s devices for site %s", len(self.devices), self.site_id)
+            return list(self.devices.values())
+            
         except Exception as e:
-            _LOGGER.warning("Update failed: %s. Retrying in %s seconds.", e, self.backoff_time)
+            self.consecutive_failures += 1
+            _LOGGER.warning("Update failed (consecutive failure %s/%s): %s", 
+                           self.consecutive_failures, self.max_consecutive_failures, e)
+            
+            # Use exponential backoff, but cap it
+            self.backoff_time = min(self.backoff_time * 2, self.max_backoff)
             self.update_interval = timedelta(seconds=self.backoff_time)
-            self.backoff_time = min(self.backoff_time * 2, self.max_backoff)  # Exponential backoff
-            if "timeout" in str(e).lower() or "connect" in str(e).lower():
+            
+            # Reset authentication on connection-related errors
+            error_str = str(e).lower()
+            connection_errors = [
+                "connection reset", "connection closed", "cannot connect", 
+                "timeout", "connect", "ssl", "peer", "disconnected"
+            ]
+            
+            if any(err in error_str for err in connection_errors):
+                _LOGGER.info("Connection error detected, resetting client state")
                 self.client.authenticated = False
                 await self.client.create_ssl_context()
+                
+            # If we have too many consecutive failures, log more seriously
+            if self.consecutive_failures >= self.max_consecutive_failures:
+                _LOGGER.error(
+                    "Too many consecutive failures (%s). Last error: %s. "
+                    "Integration will continue retrying every %s seconds.",
+                    self.consecutive_failures, e, self.backoff_time
+                )
+                
             raise UpdateFailed(f"Error communicating with UniFi controller: {e}") from e
 
     def get_device(self, mac_address: str) -> dict:
-        """Get device by MAC address (case-insensitive)"""
+        """Get device by MAC address (case-insensitive)."""
         return self.devices.get(mac_address.lower())
 
     def get_aps(self) -> list[dict]:
-        """Return all AP devices"""
-        return list(self.devices.values())  # Already filtered to UAPs
+        """Return all AP devices."""
+        return list(self.devices.values())
