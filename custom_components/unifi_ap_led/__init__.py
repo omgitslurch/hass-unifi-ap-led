@@ -7,7 +7,7 @@ from .client import UnifiAPClient
 from .const import (
     DOMAIN, CONF_HOST, CONF_USERNAME, CONF_PASSWORD, 
     CONF_SITE_ID, CONF_PORT, DEFAULT_PORT, CONF_VERIFY_SSL,
-    CONF_AP_MACS, CONF_SITE_NAME
+    CONF_AP_MACS, CONF_SITE_NAME, CONF_API_BASE_PATH, CONF_IS_UNIFI_OS
 )
 from .coordinator import UnifiAPCoordinator
 
@@ -47,7 +47,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             _LOGGER.error("No valid AP MAC addresses found in configuration")
             return False
 
-        # Use simple client without stored connection method
+        # Use stored connection method if available
         client = UnifiAPClient(
             host=data[CONF_HOST],
             port=data.get(CONF_PORT, DEFAULT_PORT),
@@ -56,6 +56,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             verify_ssl=data.get(CONF_VERIFY_SSL, True)
         )
 
+        # Pre-set stored connection method if available
+        if data.get(CONF_API_BASE_PATH) is not None:
+            client.api_base_path = data[CONF_API_BASE_PATH]
+        if data.get(CONF_IS_UNIFI_OS) is not None:
+            client.is_unifi_os = data[CONF_IS_UNIFI_OS]
+
         await client.create_ssl_context()
         
         # Test connection with retry
@@ -63,7 +69,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         for attempt in range(max_retries):
             try:
                 if not await client.login():
-                    _LOGGER.error("Failed to login to UniFi controller (attempt %s/%s)", attempt + 1, max_retries)
+                    _LOGGER.error("Failed to login to UniFi controller (attempt %s/%s): %s", 
+                                 attempt + 1, max_retries, client.last_error)
+                    
+                    # If we have stored connection methods but they're failing, reset them
+                    if attempt == 0 and (data.get(CONF_API_BASE_PATH) is not None or data.get(CONF_IS_UNIFI_OS) is not None):
+                        _LOGGER.info("Stored connection method failed, resetting for retry")
+                        client.api_base_path = ""
+                        client.is_unifi_os = False
+                        await client.create_ssl_context()
+                        continue
+                        
                     if attempt == max_retries - 1:
                         return False
                     await asyncio.sleep(2)
@@ -74,6 +90,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 if attempt == max_retries - 1:
                     return False
                 await asyncio.sleep(2)
+
+        # Update stored connection method with successful detection
+        if client.authenticated:
+            updates = {}
+            if client.api_base_path != data.get(CONF_API_BASE_PATH):
+                updates[CONF_API_BASE_PATH] = client.api_base_path
+            if client.is_unifi_os != data.get(CONF_IS_UNIFI_OS):
+                updates[CONF_IS_UNIFI_OS] = client.is_unifi_os
+            
+            if updates:
+                _LOGGER.info("Updating stored connection methods: %s", updates)
+                hass.config_entries.async_update_entry(entry, data={**data, **updates})
 
         devices = await client.get_devices(data[CONF_SITE_ID])
         _LOGGER.debug("Retrieved %s total devices from controller", len(devices))

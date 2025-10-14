@@ -3,6 +3,7 @@ import logging
 import aiohttp
 import ipaddress
 import re
+import ssl
 
 from homeassistant import config_entries
 from homeassistant.core import callback
@@ -19,7 +20,7 @@ from .client import UnifiAPClient
 _LOGGER = logging.getLogger(__name__)
 
 class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 4  # Bumped for connection method storage
+    VERSION = 4
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     def __init__(self):
@@ -54,9 +55,9 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 port = user_input.get(CONF_PORT, DEFAULT_PORT)
                 verify_ssl = user_input.get(CONF_VERIFY_SSL, True)
 
-            if not errors:  # ONLY proceed if no validation errors
+            if not errors:
                 try:
-                    # First attempt with provided/default port
+                    # First attempt with provided SSL setting
                     client = UnifiAPClient(
                         host=host,
                         port=port,
@@ -70,7 +71,7 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     if not login_success:
                         _LOGGER.warning("Login failed on port %s: %s", port, client.last_error)
                         
-                        # Store controller data for potential SSL retry
+                        # Store controller data
                         self.controller_data = {
                             CONF_HOST: host,
                             CONF_USERNAME: username,
@@ -79,15 +80,15 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_VERIFY_SSL: verify_ssl
                         }
                         
-                        # Check if this might be an SSL error
-                        if await self._is_ssl_error(client.last_error):
+                        # Check if this might be an SSL error - only if verify_ssl was True
+                        if verify_ssl and await self._is_ssl_error(client.last_error):
                             _LOGGER.info("Potential SSL error detected, offering SSL retry")
                             errors["base"] = "ssl_error"
                             if client:
                                 await client.close_session()
                             return await self.async_step_ssl_retry()
 
-                        # Try alternative port
+                        # Try alternative port with same SSL setting
                         alt_port = 443 if port == DEFAULT_PORT else DEFAULT_PORT
                         _LOGGER.info("Trying alternative port %s", alt_port)
                         
@@ -98,7 +99,7 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             port=alt_port,
                             username=username,
                             password=password,
-                            verify_ssl=verify_ssl
+                            verify_ssl=verify_ssl  # Keep the same SSL setting
                         )
                         await client.create_ssl_context()
 
@@ -109,15 +110,23 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             # Update controller data with alternative port
                             self.controller_data[CONF_PORT] = alt_port
                             
-                            # Check if this might be an SSL error on alternative port
-                            if await self._is_ssl_error(client.last_error):
+                            # Check if this might be an SSL error on alternative port - only if verify_ssl was True
+                            if verify_ssl and await self._is_ssl_error(client.last_error):
                                 _LOGGER.info("Potential SSL error detected on alternative port, offering SSL retry")
                                 errors["base"] = "ssl_error"
                                 if client:
                                     await client.close_session()
                                 return await self.async_step_ssl_retry()
                                 
-                            errors["base"] = "mfa_required" if "MFA required" in str(client.last_error) else ERRORS["invalid_auth"]
+                            # Check for specific authentication errors
+                            last_error_str = str(client.last_error).lower()
+                            mfa_indicators = ["mfa required", "2fa required", "multi-factor", "two-factor", "two factor", "mfa enabled", "2fa enabled"]
+                            if any(keyword in last_error_str for keyword in ["401", "403", "invalid credentials"]):
+                                errors["base"] = ERRORS["invalid_auth"]
+                            elif any(indicator in last_error_str for indicator in mfa_indicators):
+                                errors["base"] = "mfa_required"
+                            else:
+                                errors["base"] = ERRORS["cannot_connect"]
                             if client:
                                 await client.close_session()
                             client = None
@@ -132,7 +141,9 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_USERNAME: username,
                             CONF_PASSWORD: password,
                             CONF_PORT: port,
-                            CONF_VERIFY_SSL: verify_ssl
+                            CONF_VERIFY_SSL: verify_ssl,  # Store the actual SSL setting used
+                            CONF_API_BASE_PATH: client.api_base_path,
+                            CONF_IS_UNIFI_OS: client.is_unifi_os
                         }
                         self.client = client
 
@@ -151,18 +162,22 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_USERNAME: username,
                         CONF_PASSWORD: password,
                         CONF_PORT: port,
-                        CONF_VERIFY_SSL: verify_ssl
+                        CONF_VERIFY_SSL: verify_ssl,
                     }
                     if client:
                         await client.close_session()
-                    return await self.async_step_ssl_retry()
+                    # Only offer SSL retry if verify_ssl was True
+                    if verify_ssl:
+                        return await self.async_step_ssl_retry()
+                    else:
+                        errors["base"] = ERRORS["cannot_connect"]
                 except aiohttp.ClientError as e:
                     _LOGGER.error("Client error connecting to UniFi controller: %s", e)
                     errors["base"] = ERRORS["cannot_connect"]
                 except Exception as e:
                     _LOGGER.error("Connection error: %s", e, exc_info=True)
-                    # Check if this might be an SSL error in the exception
-                    if await self._is_ssl_error(str(e)):
+                    # Check if this might be an SSL error in the exception - only if verify_ssl was True
+                    if verify_ssl and await self._is_ssl_error(str(e)):
                         _LOGGER.info("SSL error detected in exception, offering SSL retry")
                         errors["base"] = "ssl_error"
                         self.controller_data = {
@@ -170,7 +185,7 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_USERNAME: username,
                             CONF_PASSWORD: password,
                             CONF_PORT: port,
-                            CONF_VERIFY_SSL: verify_ssl
+                            CONF_VERIFY_SSL: verify_ssl,
                         }
                         if client:
                             await client.close_session()
@@ -213,7 +228,7 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return any(indicator in error_str for indicator in ssl_indicators)
 
     async def async_step_ssl_retry(self, user_input=None):
-        """Prompt user to retry with SSL verification disabled or return to initial form."""
+        """Prompt user to retry with SSL verification disabled."""
         errors = {}
         if user_input is not None:
             retry_option = user_input.get("retry_option")
@@ -237,14 +252,24 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     port=self.controller_data[CONF_PORT],
                     username=self.controller_data[CONF_USERNAME],
                     password=self.controller_data[CONF_PASSWORD],
-                    verify_ssl=False
+                    verify_ssl=False  # Force SSL verification off
                 )
                 await client.create_ssl_context()
 
                 if not await client.login():
                     _LOGGER.warning("Login failed on port %s with SSL disabled: %s", 
                                    self.controller_data[CONF_PORT], client.last_error)
-                    errors["base"] = "mfa_required" if "MFA required" in str(client.last_error) else ERRORS["invalid_auth"]
+                    
+                    # Check for specific authentication errors
+                    last_error_str = str(client.last_error).lower()
+                    mfa_indicators = ["mfa required", "2fa required", "multi-factor", "two-factor", "two factor", "mfa enabled", "2fa enabled"]
+                    if any(keyword in last_error_str for keyword in ["401", "403", "invalid credentials"]):
+                        errors["base"] = ERRORS["invalid_auth"]
+                    elif any(indicator in last_error_str for indicator in mfa_indicators):
+                        errors["base"] = "mfa_required"
+                    else:
+                        errors["base"] = ERRORS["cannot_connect"]
+                        
                     await client.close_session()
                     return self.async_show_form(
                         step_id="ssl_retry",
@@ -267,6 +292,12 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 self.client = client
                 self.sites = await client.get_sites()
+                
+                # Update stored connection method with successful detection
+                self.controller_data.update({
+                    CONF_API_BASE_PATH: client.api_base_path,
+                    CONF_IS_UNIFI_OS: client.is_unifi_os
+                })
 
                 if self.sites:
                     return await self.async_step_select_site()
@@ -285,7 +316,6 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     await self.client.close_session()
                     self.client = None
 
-        _LOGGER.debug("Rendering ssl_retry form with retry_option selector. Translation key: retry_option")
         return self.async_show_form(
             step_id="ssl_retry",
             data_schema=vol.Schema({
@@ -451,6 +481,12 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
                 password=data[CONF_PASSWORD],
                 verify_ssl=data.get(CONF_VERIFY_SSL, True)
             )
+            
+            # Use stored connection method if available
+            if data.get(CONF_API_BASE_PATH) is not None:
+                self.client.api_base_path = data[CONF_API_BASE_PATH]
+            if data.get(CONF_IS_UNIFI_OS) is not None:
+                self.client.is_unifi_os = data[CONF_IS_UNIFI_OS]
             
             await self.client.create_ssl_context()
             
