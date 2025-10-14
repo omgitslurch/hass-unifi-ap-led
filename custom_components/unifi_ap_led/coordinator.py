@@ -8,10 +8,10 @@ _LOGGER = logging.getLogger(__name__)
 class UnifiAPCoordinator(DataUpdateCoordinator):
     """Coordinator for UniFi device data with robust connection recovery"""
     
-    def __init__(self, hass, client, site_id):
+    def __init__(self, hass, client, site_id, ap_macs=None):  # ADDED: ap_macs parameter
         super().__init__(
             hass,
-            _LOGGER,  # This gets passed to the base class
+            _LOGGER,
             name=f"{DOMAIN} ({site_id})",
             update_interval=timedelta(seconds=30),
         )
@@ -22,6 +22,7 @@ class UnifiAPCoordinator(DataUpdateCoordinator):
         self.max_backoff = 300
         self.consecutive_failures = 0
         self.max_consecutive_failures = 5
+        self.target_ap_macs = ap_macs or []  # ADDED: Track which APs we care about
 
     async def _async_update_data(self):
         """Fetch device data with robust error handling and recovery."""
@@ -44,7 +45,9 @@ class UnifiAPCoordinator(DataUpdateCoordinator):
             for device in devices:
                 if device.get("type") == "uap" and device.get("mac"):
                     mac = device["mac"].lower()
-                    new_devices[mac] = device
+                    # Only track devices we're configured to monitor
+                    if not self.target_ap_macs or mac in self.target_ap_macs:
+                        new_devices[mac] = device
             
             self.devices = new_devices
             
