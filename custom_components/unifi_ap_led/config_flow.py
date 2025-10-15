@@ -4,14 +4,13 @@ import aiohttp
 import ipaddress
 import re
 import ssl
-
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.const import CONF_HOST, CONF_USERNAME, CONF_PASSWORD
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import selector
 from .const import (
-    DOMAIN, CONF_SITE_ID, CONF_SITE_NAME, 
+    DOMAIN, CONF_SITE_ID, CONF_SITE_NAME,
     CONF_VERIFY_SSL, CONF_PORT, DEFAULT_PORT, ERRORS,
     CONF_AP_MACS, CONF_API_BASE_PATH, CONF_IS_UNIFI_OS, CONF_LOGIN_ENDPOINT
 )
@@ -31,6 +30,7 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.client = None
         self.selected_site = None
         self.selected_aps = []
+        _LOGGER.debug("Initializing UnifiApLedConfigFlow")
 
     async def async_step_user(self, user_input=None):
         """Initial controller setup step."""
@@ -40,13 +40,13 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             host = user_input[CONF_HOST].strip()
 
-            # Validate host (IP or hostname)
+            # Validate host (IP or hostname, allow single-label names)
             try:
                 hostIp = ipaddress.ip_address(host)
                 host_is_valid_ip = True
             except ValueError:
                 host_is_valid_ip = False
-            if not re.match(r"^([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})$", host) and not host_is_valid_ip:
+            if not re.match(r"^[a-zA-Z0-9.-]+$", host) and not host_is_valid_ip:
                 errors["host"] = "invalid_host"
             else:
                 host = user_input[CONF_HOST]
@@ -57,7 +57,6 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             if not errors:
                 try:
-                    # First attempt with provided SSL setting
                     client = UnifiAPClient(
                         host=host,
                         port=port,
@@ -71,7 +70,6 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     if not login_success:
                         _LOGGER.warning("Login failed on port %s: %s", port, client.last_error)
                         
-                        # Store controller data
                         self.controller_data = {
                             CONF_HOST: host,
                             CONF_USERNAME: username,
@@ -80,7 +78,6 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_VERIFY_SSL: verify_ssl
                         }
                         
-                        # Check if this might be an SSL error - only if verify_ssl was True
                         if verify_ssl and await self._is_ssl_error(client.last_error):
                             _LOGGER.info("Potential SSL error detected, offering SSL retry")
                             errors["base"] = "ssl_error"
@@ -88,7 +85,6 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                 await client.close_session()
                             return await self.async_step_ssl_retry()
 
-                        # Try alternative port with same SSL setting
                         alt_port = 443 if port == DEFAULT_PORT else DEFAULT_PORT
                         _LOGGER.info("Trying alternative port %s", alt_port)
                         
@@ -99,7 +95,7 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             port=alt_port,
                             username=username,
                             password=password,
-                            verify_ssl=verify_ssl  # Keep the same SSL setting
+                            verify_ssl=verify_ssl
                         )
                         await client.create_ssl_context()
 
@@ -107,10 +103,8 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         if not alt_login_success:
                             _LOGGER.warning("Login failed on alternative port %s: %s", alt_port, client.last_error)
                             
-                            # Update controller data with alternative port
                             self.controller_data[CONF_PORT] = alt_port
                             
-                            # Check if this might be an SSL error on alternative port - only if verify_ssl was True
                             if verify_ssl and await self._is_ssl_error(client.last_error):
                                 _LOGGER.info("Potential SSL error detected on alternative port, offering SSL retry")
                                 errors["base"] = "ssl_error"
@@ -118,7 +112,6 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                     await client.close_session()
                                 return await self.async_step_ssl_retry()
                                 
-                            # Check for specific authentication errors
                             last_error_str = str(client.last_error).lower()
                             mfa_indicators = ["mfa required", "2fa required", "multi-factor", "two-factor", "two factor", "mfa enabled", "2fa enabled"]
                             if any(keyword in last_error_str for keyword in ["401", "403", "invalid credentials"]):
@@ -132,7 +125,7 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             client = None
                         else:
                             _LOGGER.info("Login succeeded using alternative port %s", alt_port)
-                            port = alt_port  # Update port to reflect fallback
+                            port = alt_port
 
                     if client and (login_success or alt_login_success):
                         self.sites = await client.get_sites()
@@ -141,7 +134,7 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_USERNAME: username,
                             CONF_PASSWORD: password,
                             CONF_PORT: port,
-                            CONF_VERIFY_SSL: verify_ssl,  # Store the actual SSL setting used
+                            CONF_VERIFY_SSL: verify_ssl,
                             CONF_API_BASE_PATH: client.api_base_path,
                             CONF_IS_UNIFI_OS: client.is_unifi_os
                         }
@@ -166,7 +159,6 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     }
                     if client:
                         await client.close_session()
-                    # Only offer SSL retry if verify_ssl was True
                     if verify_ssl:
                         return await self.async_step_ssl_retry()
                     else:
@@ -176,7 +168,6 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     errors["base"] = ERRORS["cannot_connect"]
                 except Exception as e:
                     _LOGGER.error("Connection error: %s", e, exc_info=True)
-                    # Check if this might be an SSL error in the exception - only if verify_ssl was True
                     if verify_ssl and await self._is_ssl_error(str(e)):
                         _LOGGER.info("SSL error detected in exception, offering SSL retry")
                         errors["base"] = "ssl_error"
@@ -196,21 +187,19 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     if errors and client and "ssl_error" not in errors.get("base", ""):
                         try:
                             await client.close_session()
+                            client = None
                         except Exception as e:
                             _LOGGER.error("Error closing client: %s", e)
 
-        # Pre-fill form with stored credentials if available
-        data_schema = vol.Schema({
-            vol.Required(CONF_HOST, default=self.controller_data.get(CONF_HOST, "")): str,
-            vol.Required(CONF_USERNAME, default=self.controller_data.get(CONF_USERNAME, "")): str,
-            vol.Required(CONF_PASSWORD, default=self.controller_data.get(CONF_PASSWORD, "")): str,
-            vol.Optional(CONF_PORT, default=self.controller_data.get(CONF_PORT, DEFAULT_PORT)): int,
-            vol.Optional(CONF_VERIFY_SSL, default=self.controller_data.get(CONF_VERIFY_SSL, True)): bool
-        })
-
         return self.async_show_form(
             step_id="user",
-            data_schema=data_schema,
+            data_schema=vol.Schema({
+                vol.Required(CONF_HOST, default=self.controller_data.get(CONF_HOST, "")): str,
+                vol.Required(CONF_USERNAME, default=self.controller_data.get(CONF_USERNAME, "")): str,
+                vol.Required(CONF_PASSWORD, default=self.controller_data.get(CONF_PASSWORD, "")): str,
+                vol.Optional(CONF_PORT, default=self.controller_data.get(CONF_PORT, DEFAULT_PORT)): int,
+                vol.Optional(CONF_VERIFY_SSL, default=self.controller_data.get(CONF_VERIFY_SSL, True)): bool
+            }),
             errors=errors
         )
 
@@ -237,12 +226,10 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.info("User chose not to retry with SSL verification disabled; returning to user step")
                 return await self.async_step_user()
 
-            # Retry with verify_ssl=False
             _LOGGER.info("Retrying with SSL verification disabled on port %s", self.controller_data[CONF_PORT])
             self.controller_data[CONF_VERIFY_SSL] = False
 
             try:
-                # Ensure client is fully reset
                 if self.client:
                     await self.client.close_session()
                     self.client = None
@@ -252,7 +239,7 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     port=self.controller_data[CONF_PORT],
                     username=self.controller_data[CONF_USERNAME],
                     password=self.controller_data[CONF_PASSWORD],
-                    verify_ssl=False  # Force SSL verification off
+                    verify_ssl=False
                 )
                 await client.create_ssl_context()
 
@@ -260,7 +247,6 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     _LOGGER.warning("Login failed on port %s with SSL disabled: %s", 
                                    self.controller_data[CONF_PORT], client.last_error)
                     
-                    # Check for specific authentication errors
                     last_error_str = str(client.last_error).lower()
                     mfa_indicators = ["mfa required", "2fa required", "multi-factor", "two-factor", "two factor", "mfa enabled", "2fa enabled"]
                     if any(keyword in last_error_str for keyword in ["401", "403", "invalid credentials"]):
@@ -269,7 +255,7 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         errors["base"] = "mfa_required"
                     else:
                         errors["base"] = ERRORS["cannot_connect"]
-                        
+                    
                     await client.close_session()
                     return self.async_show_form(
                         step_id="ssl_retry",
@@ -292,8 +278,6 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 self.client = client
                 self.sites = await client.get_sites()
-                
-                # Update stored connection method with successful detection
                 self.controller_data.update({
                     CONF_API_BASE_PATH: client.api_base_path,
                     CONF_IS_UNIFI_OS: client.is_unifi_os
@@ -325,7 +309,7 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             selector.SelectOptionDict(value="yes", label="Yes, retry without SSL verification"),
                             selector.SelectOptionDict(value="no", label="No, return to initial setup")
                         ],
-                        translation_key="retry_option" 
+                        translation_key="retry_option"
                     )
                 )
             }),
@@ -379,16 +363,20 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             selected_macs = user_input.get(CONF_AP_MACS, [])
             if not selected_macs:
                 errors["base"] = ERRORS["no_aps_selected"]
+                # Re-fetch devices to ensure fresh data
+                try:
+                    all_devices = await self.client.get_devices(self.selected_site)
+                    self.ap_devices = [
+                        d for d in all_devices
+                        if d.get("type") == "uap" and d.get("mac")
+                    ]
+                except Exception as e:
+                    _LOGGER.error("Error re-fetching devices: %s", e, exc_info=True)
+                    errors["base"] = ERRORS["cannot_connect"]
             else:
                 self.selected_aps = selected_macs
                 return await self.async_step_create_entry()
 
-            # Close client on error
-            if self.client:
-                await self.client.close_session()
-                self.client = None
-
-        # Build options dict
         ap_options = {
             device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model', 'AP')})"
             for device in self.ap_devices
@@ -396,11 +384,18 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }
 
         if not ap_options:
+            if self.client:
+                await self.client.close_session()
+                self.client = None
             return self.async_abort(reason=ERRORS["no_aps"])
+
+        first_mac = list(ap_options.keys())[0] if ap_options else None
+        default_list = [first_mac] if first_mac else []
+
         return self.async_show_form(
             step_id="select_aps",
             data_schema=vol.Schema({
-                vol.Required(CONF_AP_MACS, default=[]): selector.SelectSelector(
+                vol.Required(CONF_AP_MACS, default=default_list): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         multiple=True,
                         options=[selector.SelectOptionDict(value=key, label=label) for key, label in ap_options.items()]
@@ -416,9 +411,12 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if not self.selected_aps:
             return self.async_abort(reason=ERRORS["no_aps_selected"])
 
+        if not self.client or not self.client.authenticated:
+            _LOGGER.error("Invalid client state in create_entry")
+            return self.async_abort(reason=ERRORS["cannot_connect"])
+
         site_name = self.controller_data.get(CONF_SITE_NAME, self.selected_site)
 
-        # Single data with list of MACs and connection method
         data = {
             **self.controller_data,
             CONF_SITE_ID: self.selected_site,
@@ -429,21 +427,18 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_LOGIN_ENDPOINT: getattr(self.client, 'successful_login_endpoint', "api/auth/login")
         }
 
-        # Unique ID for the site/integration
         unique_id = f"{self.selected_site}_unifi_ap_led_{self.controller_data[CONF_HOST]}"
         await self.async_set_unique_id(unique_id)
         self._abort_if_unique_id_configured(updates=self.controller_data)
 
-        # Dynamic title
         ap_count = len(self.selected_aps)
         title = f"UniFi AP LEDs ({self.controller_data[CONF_HOST]}, {ap_count} AP{'s' if ap_count > 1 else ''}) - {site_name}"
 
-        # Create and return single entry
         entry = self.async_create_entry(title=title, data=data)
 
-        # Close client
         if self.client:
             await self.client.close_session()
+            self.client = None
 
         return entry
 
@@ -452,6 +447,7 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if self.client:
             try:
                 await self.client.close_session()
+                self.client = None
             except Exception as e:
                 _LOGGER.error("Error closing client: %s", e)
         return await super().async_step_cancel(user_input)
@@ -482,7 +478,6 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
                 verify_ssl=data.get(CONF_VERIFY_SSL, True)
             )
             
-            # Use stored connection method if available
             if data.get(CONF_API_BASE_PATH) is not None:
                 self.client.api_base_path = data[CONF_API_BASE_PATH]
             if data.get(CONF_IS_UNIFI_OS) is not None:
@@ -504,7 +499,6 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         
         configured_aps = data.get(CONF_AP_MACS, [])
         
-        # Find APs not already configured
         available_aps = {
             device["mac"]: f"{device.get('name', 'Unnamed')} ({device.get('model_display') or device.get('model', 'AP')})"
             for device in self.ap_devices
@@ -516,7 +510,7 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         
         return await self.async_step_add_aps(available_aps)
 
-    async def async_step_add_aps(self, available_aps, user_input=None):
+    async def async_step_add_aps(self, available_aps=None, user_input=None):
         """Add additional APs."""
         errors = {}
         
@@ -526,32 +520,32 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
             if not new_macs:
                 errors["base"] = ERRORS["no_aps_selected"]
             else:
-                # Load current data
                 current_data = dict(self.config_entry.data)
                 current_macs = current_data.get(CONF_AP_MACS, [])
                 
-                # Add new MACs (avoid duplicates)
                 for mac in new_macs:
                     if mac not in current_macs:
                         current_macs.append(mac)
                 
                 current_data[CONF_AP_MACS] = current_macs
 
-                # Update title
                 site_name = current_data.get(CONF_SITE_NAME, current_data[CONF_SITE_ID])
                 ap_count = len(current_macs)
                 new_title = f"UniFi AP LEDs ({current_data[CONF_HOST]}, {ap_count} AP{'s' if ap_count > 1 else ''}) - {site_name}"
 
-                # Close client and update entry
                 if self.client:
                     await self.client.close_session()
+                    self.client = None
 
                 return self.async_create_entry(title=new_title, data=current_data)
         
+        first_mac = list(available_aps.keys())[0] if available_aps else None
+        default_list = [first_mac] if first_mac else []
+
         return self.async_show_form(
             step_id="add_aps",
             data_schema=vol.Schema({
-                vol.Required(CONF_AP_MACS, default=[]): selector.SelectSelector(
+                vol.Required(CONF_AP_MACS, default=default_list): selector.SelectSelector(
                     selector.SelectSelectorConfig(
                         multiple=True,
                         options=[selector.SelectOptionDict(value=mac, label=label) 
@@ -567,4 +561,5 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
         """Handle options flow cancellation."""
         if self.client:
             await self.client.close_session()
+            self.client = None
         return await super().async_step_cancel(user_input)
