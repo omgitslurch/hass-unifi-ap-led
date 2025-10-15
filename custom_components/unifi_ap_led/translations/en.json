@@ -10,7 +10,7 @@
           "port": "Port (default: 8443)",
           "verify_ssl": "Verify SSL"
         },
-        "description": "Note: Site name is usually 'default' unless you have multiple sites."
+        "description": "Note: Use a local account with no MFA."
       },
       "select_site": {
         "title": "Select Site",

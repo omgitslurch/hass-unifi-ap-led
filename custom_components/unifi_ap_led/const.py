@@ -6,7 +6,6 @@ CONF_SITE_NAME = "site_name"
 CONF_AP_MACS = "ap_macs" 
 CONF_VERIFY_SSL = "verify_ssl"
 CONF_PORT = "port"
-
 CONF_API_BASE_PATH = "api_base_path"
 CONF_IS_UNIFI_OS = "is_unifi_os"
 CONF_LOGIN_ENDPOINT = "login_endpoint"

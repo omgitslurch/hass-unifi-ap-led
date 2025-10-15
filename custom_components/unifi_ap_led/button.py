@@ -48,37 +48,64 @@ class UnifiLedFlashButton(ButtonEntity):
         self._ap_mac = ap_mac
         self._attr_unique_id = f"unifi_flash_{ap_mac}"
         self._flash_task = None
+        self._flash_lock = asyncio.Lock()  # ADDED: Prevent multiple simultaneous flashes
 
     async def async_press(self) -> None:
         """Handle the button press."""
-        if self._flash_task:
-            self._flash_task.cancel()
+        async with self._flash_lock:  # ADDED: Prevent race conditions
+            # Cancel any existing flash task properly
+            if self._flash_task and not self._flash_task.done():
+                self._flash_task.cancel()
+                try:
+                    await self._flash_task
+                except asyncio.CancelledError:
+                    _LOGGER.debug("Cancelled existing flash task for %s", self._ap_mac)
+                except Exception as e:
+                    _LOGGER.debug("Error cancelling flash task: %s", e)
             
-        try:
-            success = await self.coordinator.client.flash_led(
-                self.coordinator.site_id, self._ap_mac
-            )
-            if not success:
-                _LOGGER.error("Failed to start flash for %s", self._ap_mac)
-                return
+            try:
+                success = await self.coordinator.client.flash_led(
+                    self.coordinator.site_id, self._ap_mac
+                )
+                if not success:
+                    _LOGGER.error("Failed to start flash for %s", self._ap_mac)
+                    return
 
-            _LOGGER.info("Started flashing for %s", self._ap_mac)
-            self._flash_task = asyncio.create_task(self._auto_stop())
-        except Exception as e:
-            _LOGGER.error("Error starting flash: %s", e, exc_info=True)
+                _LOGGER.info("Started flashing for %s", self._ap_mac)
+                self._flash_task = asyncio.create_task(self._auto_stop())
+            except Exception as e:
+                _LOGGER.error("Error starting flash: %s", e, exc_info=True)
 
     async def _auto_stop(self):
         """Automatically stop flashing after 2 minutes"""
         try:
             await asyncio.sleep(120)
-            await self.coordinator.client.stop_flash_led(
-                self.coordinator.site_id, self._ap_mac
-            )
-            _LOGGER.info("Auto-stopped flash for %s", self._ap_mac)
+            # Check if we're still the current task
+            if self._flash_task and not self._flash_task.done():
+                await self.coordinator.client.stop_flash_led(
+                    self.coordinator.site_id, self._ap_mac
+                )
+                _LOGGER.info("Auto-stopped flash for %s", self._ap_mac)
+        except asyncio.CancelledError:
+            _LOGGER.debug("Flash task was cancelled for %s", self._ap_mac)
+            raise  # Re-raise to properly handle cancellation
         except Exception as e:
             _LOGGER.error("Error during auto-stop: %s", e, exc_info=True)
         finally:
-            self._flash_task = None
+            # Only clear if this is still the current task
+            if self._flash_task and self._flash_task.done():
+                self._flash_task = None
+
+    async def async_will_remove_from_hass(self):
+        """Cancel any running flash task when entity is removed."""
+        if self._flash_task and not self._flash_task.done():
+            self._flash_task.cancel()
+            try:
+                await self._flash_task
+            except asyncio.CancelledError:
+                _LOGGER.debug("Cancelled flash task during removal for %s", self._ap_mac)
+            except Exception as e:
+                _LOGGER.debug("Error during flash task cancellation: %s", e)
 
     @property
     def device_info(self):

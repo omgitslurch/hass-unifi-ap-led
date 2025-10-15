@@ -10,7 +10,7 @@
           "port": "Port (par défaut : 8443)",
           "verify_ssl": "Vérifier SSL"
         },
-        "description": "Remarque : Le nom du site est généralement 'default' sauf si vous avez plusieurs sites."
+        "description": "Remarque : Utilisez un compte local sans authentification à deux facteurs (MFA)."
       },
       "select_site": {
         "title": "Sélectionner un site",
@@ -55,13 +55,13 @@
       "no_aps": "Aucun point d'accès trouvé dans ce site",
       "no_new_aps": "Aucun point d'accès supplémentaire disponible",
       "no_aps_selected": "Veuillez sélectionner au moins un point d'accès",
-      "timeout": "Délai d'attente dépassé. Vérifiez la connexion au contrôleur.",
+      "timeout": "La requête a expiré. Vérifiez la connexion au contrôleur.",
       "connection_error": "Une erreur de connexion réseau s'est produite",
       "unknown": "Une erreur inconnue s'est produite",
       "rate_limit": "Limite de taux de l'API UniFi dépassée. Veuillez réessayer plus tard.",
-      "invalid_host": "Format d'hôte invalide. Utilisez une adresse IP (par ex. 192.168.1.1) ou un domaine (par ex. unifi.local).",
-      "mfa_required": "Échec d'authentification : Utilisez un compte administrateur local (Paramètres > Administrateurs > Créer un administrateur local - sans MFA). Les comptes cloud (ui.com) avec MFA ne sont pas pris en charge.",
-      "ssl_error": "Échec de la vérification SSL. Cela peut être dû à un certificat auto-signé. Vous pouvez réessayer avec la vérification SSL désactivée, mais cela est moins sécurisé."
+      "invalid_host": "Format d'hôte invalide. Utilisez une adresse IP (par exemple, 192.168.1.1) ou un domaine (par exemple, unifi.local).",
+      "mfa_required": "Échec de l'authentification : Utilisez un compte administrateur local (Paramètres > Administrateurs > Créer un administrateur local—sans MFA). Les comptes cloud (ui.com) avec MFA ne sont pas pris en charge.",
+      "ssl_error": "La vérification SSL a échoué. Cela peut être dû à un certificat auto-signé. Vous pouvez réessayer en désactivant la vérification SSL, mais cela est moins sécurisé."
     },
     "abort": {
       "no_aps": "Aucun point d'accès trouvé sur ce contrôleur",
@@ -86,7 +86,7 @@
       "no_new_aps": "Aucun point d'accès supplémentaire disponible",
       "already_configured": "Point d'accès déjà configuré",
       "rate_limit": "Limite de taux de l'API UniFi dépassée. Veuillez réessayer plus tard.",
-      "mfa_required": "Échec d'authentification : Utilisez un compte administrateur local (Paramètres > Administrateurs > Créer un administrateur local - sans MFA). Les comptes cloud (ui.com) avec MFA ne sont pas pris en charge."
+      "mfa_required": "Échec de l'authentification : Utilisez un compte administrateur local (Paramètres > Administrateurs > Créer un administrateur local—sans MFA). Les comptes cloud (ui.com) avec MFA ne sont pas pris en charge."
     }
   }
 }

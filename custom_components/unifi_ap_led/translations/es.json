@@ -10,42 +10,42 @@
           "port": "Puerto (predeterminado: 8443)",
           "verify_ssl": "Verificar SSL"
         },
-        "description": "Nota: El nombre del sitio suele ser 'default' a menos que tenga múltiples sitios."
+        "description": "Nota: Usa una cuenta local sin autenticación de dos factores (MFA)."
       },
       "select_site": {
         "title": "Seleccionar sitio",
         "data": {
           "site_id": "Sitio"
         },
-        "description": "Se encontraron {site_count} sitio(s). Seleccione el sitio que contiene sus puntos de acceso."
+        "description": "Se encontraron {site_count} sitio(s). Selecciona el sitio que contiene tus puntos de acceso."
       },
       "select_aps": {
         "title": "Seleccionar puntos de acceso",
         "data": {
           "ap_macs": "Puntos de acceso"
         },
-        "description": "Se encontraron {ap_count} punto(s) de acceso. Seleccione los que desea controlar."
+        "description": "Se encontraron {ap_count} punto(s) de acceso. Selecciona los que deseas controlar."
       },
       "select_ap": {
         "title": "Seleccionar punto de acceso",
         "data": {
           "ap_mac": "Punto de acceso"
         },
-        "description": "Se encontraron {ap_count} punto(s) de acceso. Seleccione el que desea controlar."
+        "description": "Se encontraron {ap_count} punto(s) de acceso. Selecciona el que deseas controlar."
       },
       "add_ap": {
         "title": "Agregar punto de acceso",
         "data": {
           "ap_mac": "Punto de acceso"
         },
-        "description": "Seleccione un punto de acceso adicional para controlar."
+        "description": "Selecciona un punto de acceso adicional para controlar."
       },
       "ssl_retry": {
         "title": "Problema de verificación SSL",
         "data": {
           "retry_option": "Opción de reintento"
         },
-        "description": "No se pudo verificar el certificado SSL del controlador UniFi, probablemente debido a un certificado autofirmado. {ssl_warning} Seleccione 'Sí' para reintentar sin verificación SSL, o 'No' para volver al formulario de configuración y ajustar sus ajustes."
+        "description": "No se pudo verificar el certificado SSL del controlador UniFi, probablemente debido a un certificado autofirmado. {ssl_warning} Selecciona 'Sí' para reintentar sin verificación SSL, o 'No' para regresar al formulario de configuración y ajustar tus ajustes."
       }
     },
     "error": {
@@ -54,14 +54,14 @@
       "no_sites": "No se encontraron sitios en este controlador",
       "no_aps": "No se encontraron puntos de acceso en este sitio",
       "no_new_aps": "No hay puntos de acceso adicionales disponibles",
-      "no_aps_selected": "Por favor, seleccione al menos un punto de acceso",
-      "timeout": "Tiempo de espera agotado. Verifique la conexión con el controlador.",
+      "no_aps_selected": "Por favor, selecciona al menos un punto de acceso",
+      "timeout": "La solicitud agotó el tiempo de espera. Verifica la conexión al controlador.",
       "connection_error": "Ocurrió un error de conexión de red",
       "unknown": "Ocurrió un error desconocido",
-      "rate_limit": "Se excedió el límite de tasa de la API de UniFi. Inténtelo de nuevo más tarde.",
-      "invalid_host": "Formato de host inválido. Use una dirección IP (por ejemplo, 192.168.1.1) o un dominio (por ejemplo, unifi.local).",
-      "mfa_required": "Autenticación fallida: Use una cuenta de administrador local (Configuración > Administradores > Crear administrador local - sin MFA). Las cuentas en la nube (ui.com) con MFA no son compatibles.",
-      "ssl_error": "Fallo en la verificación SSL. Esto puede deberse a un certificado autofirmado. Puede reintentar con la verificación SSL deshabilitada, pero esto es menos seguro."
+      "rate_limit": "Se excedió el límite de tasa de la API de UniFi. Por favor, intenta de nuevo más tarde.",
+      "invalid_host": "Formato de host inválido. Usa una dirección IP (por ejemplo, 192.168.1.1) o un dominio (por ejemplo, unifi.local).",
+      "mfa_required": "Fallo de autenticación: Usa una cuenta de administrador local (Configuración > Administradores > Crear administrador local—sin MFA). Las cuentas en la nube (ui.com) con MFA no son compatibles.",
+      "ssl_error": "La verificación SSL falló. Esto puede deberse a un certificado autofirmado. Puedes reintentar desactivando la verificación SSL, pero esto es menos seguro."
     },
     "abort": {
       "no_aps": "No se encontraron puntos de acceso en este controlador",
@@ -78,15 +78,15 @@
         "data": {
           "ap_mac": "Punto de acceso"
         },
-        "description": "Seleccione un punto de acceso adicional para controlar."
+        "description": "Selecciona un punto de acceso adicional para controlar."
       }
     },
     "error": {
       "cannot_connect": "No se pudo conectar al controlador UniFi",
       "no_new_aps": "No hay puntos de acceso adicionales disponibles",
       "already_configured": "Punto de acceso ya configurado",
-      "rate_limit": "Se excedió el límite de tasa de la API de UniFi. Inténtelo de nuevo más tarde.",
-      "mfa_required": "Autenticación fallida: Use una cuenta de administrador local (Configuración > Administradores > Crear administrador local - sin MFA). Las cuentas en la nube (ui.com) con MFA no son compatibles."
+      "rate_limit": "Se excedió el límite de tasa de la API de UniFi. Por favor, intenta de nuevo más tarde.",
+      "mfa_required": "Fallo de autenticación: Usa una cuenta de administrador local (Configuración > Administradores > Crear administrador local—sin MFA). Las cuentas en la nube (ui.com) con MFA no son compatibles."
     }
   }
 }
