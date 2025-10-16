@@ -77,8 +77,9 @@ class UnifiAPClient:
             async with asyncio.timeout(10):
                 async with self.session.get(url, ssl=self.ssl_context, allow_redirects=False) as resp:
                     response_text = await resp.text()
-                    self.log.debug("Test %s: Status %s, SSL verify=%s, Response: %s", 
-                                  url, resp.status, self.verify_ssl, response_text[:200])
+                    self.log.debug("Test %s: Status %s, Response: %s", url, resp.status, response_text[:200])
+                    if resp.status in (401, 403):
+                        self.log.debug("Received %s on %s: %s", resp.status, url, response_text)
                     return True, resp.status, response_text
         except Exception as e:
             self.log.debug("Test %s failed: %s", url, e)
@@ -88,7 +89,18 @@ class UnifiAPClient:
         """Detect API structure with comprehensive testing."""
         self.log.info("Detecting API structure for %s:%s, verify_ssl=%s", self.host, self.port, self.verify_ssl)
         
+        # Test patterns, prioritize UniFi OS
         test_patterns = [
+            # UniFi OS (UDM/UCK) - login at root, API at /proxy/network
+            {
+                "type": "unifi_os",
+                "api_base": "/proxy/network",
+                "login_base": "",
+                "test_endpoints": [
+                    "/proxy/network/api/self/sites",  # Primary test; often 200 or 401
+                    "/proxy/network/api/status"
+                ]
+            },
             # Self-hosted legacy - everything at root
             {
                 "type": "self_hosted_legacy",
@@ -108,16 +120,6 @@ class UnifiAPClient:
                     "/api/self/sites",
                     "/api/status"
                 ]
-            },
-            # UniFi OS (UDM/UCK) - login at root, API at /proxy/network
-            {
-                "type": "unifi_os",
-                "api_base": "/proxy/network",
-                "login_base": "",
-                "test_endpoints": [
-                    "/proxy/network/api/self/sites",
-                    "/proxy/network/api/status"
-                ]
             }
         ]
 
@@ -128,47 +130,65 @@ class UnifiAPClient:
         for pattern in test_patterns:
             self.log.debug("Testing pattern: %s", pattern["type"])
             score = 0
+            primary_success = False  # Track primary endpoint (e.g., /self/sites)
             
-            for endpoint in pattern["test_endpoints"]:
+            for i, endpoint in enumerate(pattern["test_endpoints"]):
                 if pattern["api_base"]:
                     test_url = f"https://{self.host}:{self.port}{pattern['api_base']}{endpoint}"
                 else:
                     test_url = f"https://{self.host}:{self.port}{endpoint}"
                 
                 success, status, response_text = await self._test_endpoint(test_url)
-                if success and status in (200, 401, 403):
-                    score += 1
+                if success:
+                    if status in (200, 401):
+                        score += 2  # Higher weight for 200/401 (likely correct path)
+                        if i == 0:  # Primary endpoint (e.g., /self/sites)
+                            primary_success = True
+                    elif status == 403:
+                        score += 1  # Lower weight for 403 (exists but forbidden)
                     detected_endpoints.append((endpoint, status, response_text))
                     self.log.debug("Pattern %s: endpoint %s responded with %s", pattern["type"], endpoint, status)
+            
+            # UniFi OS bonus: if primary endpoint succeeds, boost score
+            if pattern["type"] == "unifi_os" and primary_success:
+                score += 1
             
             if score > best_score:
                 best_score = score
                 best_match = pattern
             elif score == best_score and score > 0:
-                # Prefer legacy pattern if scores are equal, since v9 responds to legacy paths
-                if pattern["type"] == "self_hosted_legacy":
+                # Tiebreaker: prefer UniFi OS if it matches primary
+                if pattern["type"] == "unifi_os" and primary_success:
                     best_match = pattern
 
+        # Always retry UniFi OS on port 443 if not on 443 and no clear match
         if not best_match and self.port != 443:
-            self.log.debug("No pattern detected on port %s, retrying UniFi OS pattern on port 443", self.port)
+            self.log.debug("No clear pattern on port %s, retrying UniFi OS on 443", self.port)
             original_port = self.port
             self.port = 443
             await self.create_ssl_context()
-            for pattern in test_patterns:
-                if pattern["type"] == "unifi_os":
-                    score = 0
-                    for endpoint in pattern["test_endpoints"]:
-                        test_url = f"https://{self.host}:{self.port}{pattern['api_base']}{endpoint}"
-                        success, status, response_text = await self._test_endpoint(test_url)
-                        if success and status in (200, 401, 403):
-                            score += 1
-                            detected_endpoints.append((endpoint, status, response_text))
-                            self.log.debug("Pattern %s: endpoint %s responded with %s on port 443", 
-                                         pattern["type"], endpoint, status)
-                    if score > best_score:
-                        best_score = score
-                        best_match = pattern
-            if not best_match:
+            unifi_os_pattern = next(p for p in test_patterns if p["type"] == "unifi_os")
+            score = 0
+            primary_success = False
+            for i, endpoint in enumerate(unifi_os_pattern["test_endpoints"]):
+                test_url = f"https://{self.host}:{self.port}{unifi_os_pattern['api_base']}{endpoint}"
+                success, status, response_text = await self._test_endpoint(test_url)
+                if success:
+                    if status in (200, 401):
+                        score += 2
+                        if i == 0:
+                            primary_success = True
+                    elif status == 403:
+                        score += 1
+                    detected_endpoints.append((endpoint, status, response_text))
+                    self.log.debug("UniFi OS retry on 443: %s responded with %s", endpoint, status)
+            
+            if primary_success or score > best_score:
+                best_score = score
+                best_match = unifi_os_pattern
+            
+            # Restore original port if retry fails
+            if not best_match or not primary_success:
                 self.port = original_port
                 await self.create_ssl_context()
 
@@ -178,17 +198,16 @@ class UnifiAPClient:
             self.is_unifi_os = (best_match["type"] == "unifi_os")
             self.is_udm = self.is_unifi_os
             self.log.info(
-                "Detected API pattern: %s (API base: '%s', Login base: '%s', Score: %s, Port: %s, Endpoints: %s)",
+                "Detected API pattern: %s (API base: '%s', Login base: '%s', Score: %s, Port: %s)",
                 best_match["type"],
                 self.api_base_path if self.api_base_path else "root",
                 self.login_base_path if self.login_base_path else "root", 
                 best_score,
-                self.port,
-                detected_endpoints
+                self.port
             )
             return True
         else:
-            self.log.warning("No API pattern detected clearly, assuming self-hosted with root base path. Endpoints tested: %s", detected_endpoints)
+            self.log.warning("No API pattern detected clearly, assuming self-hosted with root base path. Tested: %s", detected_endpoints)
             self.api_base_path = ""
             self.login_base_path = ""
             self.is_unifi_os = False
@@ -202,7 +221,7 @@ class UnifiAPClient:
         return f"/{endpoint.lstrip('/')}"
 
     def _build_login_url(self, endpoint: str) -> str:
-        """Build login URL - for UniFi OS, login doesn't use /proxy/network"""
+        """Build login URL - for UniFi OS, login doesn't use /proxy/network."""
         if self.is_unifi_os and self.login_base_path == "":
             return f"/{endpoint.lstrip('/')}"
         elif self.login_base_path:
@@ -211,7 +230,7 @@ class UnifiAPClient:
             return self._build_url(endpoint)
 
     def _build_headers(self, method: str, site_id: Optional[str] = None) -> Dict[str, str]:
-        """Build request headers"""
+        """Build request headers."""
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json"
@@ -253,7 +272,7 @@ class UnifiAPClient:
                     if "set-cookie" in resp.headers:
                         cookies = resp.headers["set-cookie"]
                         for cookie in cookies.split(','):
-                            if 'unifises' in cookie:
+                            if 'unifi' in cookie:
                                 self.session_cookie = cookie.split(';')[0].strip()
                                 self.log.debug("Set session cookie: %s", self.session_cookie)
                                 break
@@ -277,8 +296,13 @@ class UnifiAPClient:
                     self.log.debug("Response: %s %s", resp.status, result[:200] if isinstance(result, str) else result)
                     return resp, result
                     
+        except asyncio.TimeoutError as e:
+            self.log.error("Request timed out for %s", full_url)
+            self.last_error = f"Request timed out for {full_url}"
+            raise
         except Exception as e:
             self.log.error("Request failed for %s: %s", full_url, e)
+            self.last_error = f"Request failed for {full_url}: {str(e)}"
             raise
 
     async def login(self) -> bool:
@@ -318,8 +342,8 @@ class UnifiAPClient:
             for login_endpoint in login_endpoints:
                 for payload in payloads:
                     try:
-                        self.log.debug("Attempting login with endpoint: %s, payload: %s, verify_ssl=%s", 
-                                      login_endpoint, payload, self.verify_ssl)
+                        self.log.debug("Attempting login with endpoint: %s, payload keys: %s, verify_ssl=%s", 
+                                      login_endpoint, list(payload.keys()), self.verify_ssl)
                         
                         resp, data = await self._perform_request("POST", login_endpoint, payload)
                         
@@ -430,7 +454,9 @@ class UnifiAPClient:
             
             if resp.status == 200:
                 if isinstance(data, dict) and "data" in data:
+                    self.log.debug("Retrieved %s sites from %s", len(data["data"]), "UniFi OS" if self.is_unifi_os else "self-hosted")
                     return data["data"]
+            self.log.warning("Failed to get sites: status %s, data: %s", resp.status if 'resp' in locals() else 'N/A', data)
             return []
         except Exception as e:
             self.log.error("Error getting sites: %s", e)
@@ -450,24 +476,30 @@ class UnifiAPClient:
             if resp.status == 200:
                 if isinstance(data, dict) and "data" in data:
                     devices = data["data"]
+                    
+                    # Filter for AP devices with flexible matching
                     uap_devices = []
                     for device in devices:
                         device_type = device.get("type", "").lower()
                         device_model = device.get("model", "").lower()
+                        
                         if (device_type.startswith(("uap", "ap")) or 
                             "uap" in device_model or 
                             device_type == "uap" or
                             any(x in device_model for x in ["u6", "uap", "ac", "hd", "shd", "xg"])):
                             uap_devices.append(device)
+                    
                     self.log.info("Found %s UAP devices at site %s", len(uap_devices), site_id)
                     return uap_devices
+            
+            self.log.warning("Failed to get devices for site %s: status %s", site_id, resp.status)
             return []
         except Exception as e:
             self.log.error("Error getting devices for site %s: %s", site_id, e)
             raise
 
     async def flash_led(self, site_id: str, mac: str) -> bool:
-        """Flash LED on specific AP"""
+        """Flash LED on specific AP."""
         try:
             if not await self._ensure_authenticated():
                 return False
@@ -489,7 +521,7 @@ class UnifiAPClient:
             raise
 
     async def stop_flash_led(self, site_id: str, mac: str) -> bool:
-        """Stop flashing LED on specific AP"""
+        """Stop flashing LED on specific AP."""
         try:
             if not await self._ensure_authenticated():
                 return False
