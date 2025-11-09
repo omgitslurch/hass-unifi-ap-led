@@ -65,7 +65,7 @@ class UnifiLedLight(LightEntity):
     def _handle_coordinator_update(self):
         """Handle updated data from the coordinator."""
         device = self.coordinator.get_device(self._ap_mac)
-    
+        
         if not device:
             self._attr_available = False
             _LOGGER.warning("Device %s not found in coordinator update", self._ap_mac)
@@ -74,18 +74,18 @@ class UnifiLedLight(LightEntity):
             # Only update state if we don't have a pending command
             if not self._pending_command:
                 led_override = device.get("led_override")
-                # Handle different response formats more robustly
-                if led_override in ["on", "default", True]:
+                # Handle different response formats
+                if led_override == "on" or led_override is True:
                     self._state = True
-                elif led_override in ["off", False]:
+                elif led_override == "off" or led_override is False:
                     self._state = False
                 else:
-                    # Default to off if not specified or unknown value
+                    # Default to off if not specified
                     self._state = False
-            
+                
                 _LOGGER.debug("Updated state for %s: %s (led_override: %s)", 
                              self._ap_mac, self._state, led_override)
-    
+        
         self.async_write_ha_state()
 
     @property

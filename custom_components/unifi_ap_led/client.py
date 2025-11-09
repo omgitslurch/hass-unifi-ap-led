@@ -28,6 +28,7 @@ class UnifiAPClient:
         self.controller_version = "Unknown"
         self.last_error = None
         self.successful_login_endpoint = None
+        self.request_lock = asyncio.Lock()
 
     async def create_ssl_context(self):
         """Create SSL context with better stability."""
@@ -260,8 +261,9 @@ class UnifiAPClient:
     async def _perform_request(self, method: str, endpoint: str, data: Optional[dict] = None, 
                               site_id: str = None) -> Tuple[aiohttp.ClientResponse, Any]:
         """Perform HTTP request with proper URL construction."""
-        if self.ssl_context is None or self.session is None:
-            await self.create_ssl_context()
+        async with self.request_lock:
+            if self.ssl_context is None or self.session is None:
+                await self.create_ssl_context()
 
         if endpoint in ["api/login", "api/auth/login"] and self.is_unifi_os:
             url = self._build_login_url(endpoint)
@@ -454,9 +456,10 @@ class UnifiAPClient:
 
     async def _ensure_authenticated(self):
         """Ensure we're authenticated."""
-        if not self.authenticated:
-            return await self.login()
-        return True
+        async with self.login_lock:
+            if not self.authenticated:
+                return await self.login()
+            return True
 
     async def get_sites(self) -> List[Dict]:
         """Get available sites from the controller."""
