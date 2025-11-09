@@ -332,10 +332,30 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             
             try:
                 all_devices = await self.client.get_devices(self.selected_site)
-                self.ap_devices = [
-                    d for d in all_devices
-                    if d.get("type") == "uap" and d.get("mac")
-                ]
+                # Use the same inclusive filtering as client.py
+                self.ap_devices = []
+                for device in all_devices:
+                    if not device.get("mac"):
+                        continue
+                        
+                    device_type = str(device.get("type", "")).lower()
+                    device_model = str(device.get("model", "")).lower()
+                    
+                    is_ap = (
+                        device_type in ["uap", "ap"] or
+                        device_type.startswith(("uap", "ap")) or
+                        "uap" in device_model or
+                        any(indicator in device_model for indicator in [
+                            "u6", "u7", "uap", "ac", "hd", "shd", "xg", "beacon", 
+                            "flex", "iw", "mesh", "lr", "lite", "pro", "nano"
+                        ])
+                    )
+                    
+                    if is_ap:
+                        self.ap_devices.append(device)
+                        
+                _LOGGER.debug("Found %s potential AP devices for site %s", len(self.ap_devices), self.selected_site)
+                
             except Exception as e:
                 _LOGGER.error("Error getting devices: %s", e, exc_info=True)
                 errors["base"] = ERRORS["cannot_connect"]

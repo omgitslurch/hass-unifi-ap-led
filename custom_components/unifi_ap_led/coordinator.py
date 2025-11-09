@@ -8,7 +8,7 @@ _LOGGER = logging.getLogger(__name__)
 class UnifiAPCoordinator(DataUpdateCoordinator):
     """Coordinator for UniFi device data with robust connection recovery"""
     
-    def __init__(self, hass, client, site_id, ap_macs=None):  # ADDED: ap_macs parameter
+    def __init__(self, hass, client, site_id, ap_macs=None):
         super().__init__(
             hass,
             _LOGGER,
@@ -22,7 +22,7 @@ class UnifiAPCoordinator(DataUpdateCoordinator):
         self.max_backoff = 300
         self.consecutive_failures = 0
         self.max_consecutive_failures = 5
-        self.target_ap_macs = ap_macs or []  # ADDED: Track which APs we care about
+        self.target_ap_macs = ap_macs or []  # Track which APs we care about
 
     async def _async_update_data(self):
         """Fetch device data with robust error handling and recovery."""
@@ -40,19 +40,24 @@ class UnifiAPCoordinator(DataUpdateCoordinator):
             
             devices = await self.client.get_devices(self.site_id)
             
-            # Cache only UAP devices as dict with MAC as key
+            # Cache devices as dict with MAC as key - use inclusive filtering
             new_devices = {}
             for device in devices:
-                if device.get("type") == "uap" and device.get("mac"):
-                    mac = device["mac"].lower()
-                    # Only track devices we're configured to monitor
-                    if not self.target_ap_macs or mac in self.target_ap_macs:
-                        new_devices[mac] = device
+                mac = device.get("mac", "").lower()
+                if not mac:
+                    continue
+                    
+                # Only track devices we're configured to monitor
+                if not self.target_ap_macs or mac in self.target_ap_macs:
+                    new_devices[mac] = device
+                    _LOGGER.debug("Cached device: %s (model: %s, type: %s)", 
+                                 device.get("name"), device.get("model"), device.get("type"))
             
             self.devices = new_devices
             
             if not self.devices:
-                _LOGGER.warning("No UAP devices found for site %s", self.site_id)
+                _LOGGER.warning("No devices found for site %s (target APs: %s)", 
+                               self.site_id, self.target_ap_macs)
                 
             _LOGGER.debug("Successfully updated %s devices for site %s", len(self.devices), self.site_id)
             return list(self.devices.values())
