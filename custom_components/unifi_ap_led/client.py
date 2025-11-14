@@ -87,13 +87,13 @@ class UnifiAPClient:
     async def _detect_api_structure(self):
         """Detect API structure with comprehensive testing."""
         self.log.info("Detecting API structure for %s:%s, verify_ssl=%s", self.host, self.port, self.verify_ssl)
-        
+
         test_patterns = [
             # Self-hosted legacy - everything at root
             {
                 "type": "self_hosted_legacy",
                 "api_base": "",
-                "login_base": "", 
+                "login_base": "",
                 "test_endpoints": [
                     "/api/s/default/self",
                     "/api/stat/sysinfo"
@@ -101,7 +101,7 @@ class UnifiAPClient:
             },
             # Self-hosted v7+ - everything at root
             {
-                "type": "self_hosted_v7", 
+                "type": "self_hosted_v7",
                 "api_base": "",
                 "login_base": "",
                 "test_endpoints": [
@@ -109,7 +109,7 @@ class UnifiAPClient:
                     "/api/status"
                 ]
             },
-            # UniFi OS (UDM/UCK) - login at root, API at /proxy/network
+            # UniFi OS (UDM/UCK/UCG) - login at root, API at /proxy/network
             {
                 "type": "unifi_os",
                 "api_base": "/proxy/network",
@@ -124,23 +124,28 @@ class UnifiAPClient:
         best_match = None
         best_score = 0
         detected_endpoints = []
+        unifi_os_score = 0
 
         for pattern in test_patterns:
             self.log.debug("Testing pattern: %s", pattern["type"])
             score = 0
-            
+
             for endpoint in pattern["test_endpoints"]:
                 if pattern["api_base"]:
                     test_url = f"https://{self.host}:{self.port}{pattern['api_base']}{endpoint}"
                 else:
                     test_url = f"https://{self.host}:{self.port}{endpoint}"
-                
+
                 success, status, response_text = await self._test_endpoint(test_url)
                 if success and status in (200, 401, 403):
                     score += 1
                     detected_endpoints.append((endpoint, status, response_text))
                     self.log.debug("Pattern %s: endpoint %s responded with %s", pattern["type"], endpoint, status)
-            
+
+            # Track UniFi OS score separately for priority handling
+            if pattern["type"] == "unifi_os":
+                unifi_os_score = score
+
             if score > best_score:
                 best_score = score
                 best_match = pattern
@@ -148,6 +153,16 @@ class UnifiAPClient:
                 # Prefer legacy pattern if scores are equal, since v9 responds to legacy paths
                 if pattern["type"] == "self_hosted_legacy":
                     best_match = pattern
+
+        # Cloud Gateway special case: On port 443, if UniFi OS endpoints work, prefer UniFi OS
+        # even if self-hosted endpoints also respond (cloud gateways respond to both)
+        if self.port == 443 and unifi_os_score > 0:
+            for pattern in test_patterns:
+                if pattern["type"] == "unifi_os":
+                    self.log.info("Port 443 detected with UniFi OS endpoints responding - prioritizing UniFi OS for Cloud Gateway compatibility")
+                    best_match = pattern
+                    best_score = unifi_os_score
+                    break
 
         if not best_match and self.port != 443:
             self.log.debug("No pattern detected on port %s, retrying UniFi OS pattern on port 443", self.port)
