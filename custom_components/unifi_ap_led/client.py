@@ -436,7 +436,8 @@ class UnifiAPClient:
                         if version and version != "Unknown":
                             self.controller_version = version
                             return version
-                except Exception:
+                except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+                    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
                     continue
                     
             return "Unknown"
