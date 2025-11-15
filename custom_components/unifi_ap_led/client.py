@@ -435,14 +435,30 @@ class UnifiAPClient:
             return await self.login()
         return True
 
+    async def _invalidate_session(self):
+        """Invalidate session state when receiving 401/403 errors."""
+        self.log.warning("Invalidating session due to authentication error")
+        self.authenticated = False
+        self.session_cookie = None
+        self.csrf_token = None
+        if self.session:
+            self.session.cookie_jar.clear()
+
     async def get_sites(self) -> List[Dict]:
         """Get available sites from the controller."""
         try:
             if not await self._ensure_authenticated():
                 return []
-                
+
             resp, data = await self._perform_request("GET", "api/self/sites")
-            
+
+            # Handle 401/403 by invalidating session and retrying once
+            if resp.status in (401, 403):
+                self.log.warning("Got %s when fetching sites, invalidating session and retrying...", resp.status)
+                await self._invalidate_session()
+                if await self._ensure_authenticated():
+                    resp, data = await self._perform_request("GET", "api/self/sites")
+
             if resp.status == 200:
                 if isinstance(data, dict) and "data" in data:
                     return data["data"]
@@ -459,9 +475,16 @@ class UnifiAPClient:
 
             endpoint = f"api/s/{site_id}/stat/device"
             self.log.debug("Fetching devices from endpoint: %s", endpoint)
-            
+
             resp, data = await self._perform_request("GET", endpoint, site_id=site_id)
-            
+
+            # Handle 401/403 by invalidating session and retrying once
+            if resp.status in (401, 403):
+                self.log.warning("Got %s when fetching devices, invalidating session and retrying...", resp.status)
+                await self._invalidate_session()
+                if await self._ensure_authenticated():
+                    resp, data = await self._perform_request("GET", endpoint, site_id=site_id)
+
             if resp.status == 200:
                 if isinstance(data, dict) and "data" in data:
                     devices = data["data"]
@@ -469,8 +492,8 @@ class UnifiAPClient:
                     for device in devices:
                         device_type = device.get("type", "").lower()
                         device_model = device.get("model", "").lower()
-                        if (device_type.startswith(("uap", "ap")) or 
-                            "uap" in device_model or 
+                        if (device_type.startswith(("uap", "ap")) or
+                            "uap" in device_model or
                             device_type == "uap" or
                             any(x in device_model for x in ["u6", "uap", "ac", "hd", "shd", "xg"])):
                             uap_devices.append(device)
@@ -486,16 +509,23 @@ class UnifiAPClient:
         try:
             if not await self._ensure_authenticated():
                 return False
-                
+
             endpoint = f"api/s/{site_id}/cmd/devmgr"
             payload = {
                 "cmd": "set-locate",
                 "mac": mac.lower(),
                 "locate": True
             }
-            
+
             resp, data = await self._perform_request("POST", endpoint, payload, site_id=site_id)
-            
+
+            # Handle 401/403 by invalidating session and retrying once
+            if resp.status in (401, 403):
+                self.log.warning("Got %s when flashing LED, invalidating session and retrying...", resp.status)
+                await self._invalidate_session()
+                if await self._ensure_authenticated():
+                    resp, data = await self._perform_request("POST", endpoint, payload, site_id=site_id)
+
             if resp.status == 200:
                 return isinstance(data, dict) and data.get("meta", {}).get("rc") == "ok"
             return False
@@ -508,15 +538,22 @@ class UnifiAPClient:
         try:
             if not await self._ensure_authenticated():
                 return False
-                
+
             endpoint = f"api/s/{site_id}/cmd/devmgr"
             payload = {
                 "cmd": "unset-locate",
                 "mac": mac.lower()
             }
-            
+
             resp, data = await self._perform_request("POST", endpoint, payload, site_id=site_id)
-            
+
+            # Handle 401/403 by invalidating session and retrying once
+            if resp.status in (401, 403):
+                self.log.warning("Got %s when stopping LED flash, invalidating session and retrying...", resp.status)
+                await self._invalidate_session()
+                if await self._ensure_authenticated():
+                    resp, data = await self._perform_request("POST", endpoint, payload, site_id=site_id)
+
             if resp.status == 200:
                 return isinstance(data, dict) and data.get("meta", {}).get("rc") == "ok"
             return False
@@ -529,29 +566,36 @@ class UnifiAPClient:
         try:
             if not await self._ensure_authenticated():
                 return False
-                
+
             devices = await self.get_devices(site_id)
             device_id = None
-            
+
             for device in devices:
                 if device.get("mac", "").lower() == mac.lower():
                     device_id = device.get("_id")
                     break
-            
+
             if not device_id:
                 self.log.error("Device ID not found for MAC: %s", mac)
                 return False
-                
+
             endpoint = f"api/s/{site_id}/rest/device/{device_id}"
             payload = {"led_override": "on" if state else "off"}
-            
+
             resp, data = await self._perform_request("PUT", endpoint, payload, site_id=site_id)
-            
+
+            # Handle 401/403 by invalidating session and retrying once
+            if resp.status in (401, 403):
+                self.log.warning("Got %s when setting LED state, invalidating session and retrying...", resp.status)
+                await self._invalidate_session()
+                if await self._ensure_authenticated():
+                    resp, data = await self._perform_request("PUT", endpoint, payload, site_id=site_id)
+
             if resp.status == 200:
                 return isinstance(data, dict) and data.get("meta", {}).get("rc") == "ok"
-            
+
             return False
-            
+
         except Exception as e:
             self.log.error("Error setting LED state for %s: %s", mac, e)
             raise
