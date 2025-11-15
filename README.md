@@ -14,7 +14,7 @@ This integration allows Home Assistant to control the **status LEDs** on UniFi A
 ## Requirements
 - Home Assistant 2023.1.0 or later (recommended)
 - HACS (Home Assistant Community Store)
-- A UniFi controller (self-hosted, UDM or Cloud Gateway, though UDM and Cloud Gateway support is untested)
+- A self-hosted UniFi controller (UDM and Cloud Gateways are not officially supported.)
 
 ---
 
@@ -51,7 +51,7 @@ You will need:
 
 ## Troubleshooting
 
-- **Connection errors**: Ensure the controller IP/hostname is correct and reachable.
+- **Connection errors**: Ensure the controller IP/hostname is correct and reachable. Ensure you are using a self-hosted Unifi Controller, the project needs someone with a UDM to complete support for UDMs and Cloud Gateways.
 - **Authentication errors**: Verify the username/password and ensure the account has sufficient permissions, and does **NOT** have MFA enabled.
   
 ---

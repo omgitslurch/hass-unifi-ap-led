@@ -129,7 +129,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             _LOGGER.error("None of the configured APs were found in the controller")
             return False
 
-        coordinator = UnifiAPCoordinator(hass, client, data[CONF_SITE_ID])
+        coordinator = UnifiAPCoordinator(hass, client, data[CONF_SITE_ID], valid_ap_macs)
         await coordinator.async_config_entry_first_refresh()
 
         controller_version = client.controller_version
