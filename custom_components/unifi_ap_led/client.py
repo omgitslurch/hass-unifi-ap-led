@@ -437,7 +437,7 @@ class UnifiAPClient:
                             self.controller_version = version
                             return version
                 except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
-                    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+                    self.log.debug("Failed to get version from endpoint %s: %s", endpoint, e)
                     continue
                     
             return "Unknown"
