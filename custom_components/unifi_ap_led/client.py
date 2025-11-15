@@ -84,15 +84,17 @@ class UnifiAPClient:
                     if resp.status in (200, 401, 403):
                         # Check if response has UniFi-like JSON structure
                         is_unifi_json = False
-                        try:
-                            data = json.loads(response_text)
-                            if isinstance(data, dict) and "meta" in data:
-                                is_unifi_json = True
-                        except:
-                            pass
+                        if response_text and response_text.strip():
+                            if response_text.strip().startswith('{') and response_text.strip().endswith('}'):
+                                try:
+                                    data = json.loads(response_text)
+                                    if isinstance(data, dict) and "meta" in data:
+                                        is_unifi_json = True
+                                except (json.JSONDecodeError, UnicodeDecodeError):
+                                    pass
                         
                         if is_unifi_json:
-                            self.log.debug("✅ UniFi JSON structure detected at %s", url)
+                            self.log.debug("UniFi JSON structure detected at %s", url)
                         else:
                             self.log.debug("Response: %s", response_text[:500])
                     
@@ -123,8 +125,8 @@ class UnifiAPClient:
             },
             # Self-hosted v7+
             {
-                "type": "self_hosted_v7",
-                "api_base": "", 
+                "type": "self_hosted_v7", 
+                "api_base": "",
                 "login_base": "",
                 "test_endpoints": [
                     "/api/self/sites",       # v7+ sites endpoint
@@ -165,21 +167,21 @@ class UnifiAPClient:
                     # Much more generous scoring - any 2xx/3xx/4xx response indicates the endpoint exists
                     if status == 200:
                         score += 10  # Strong positive - endpoint exists and is accessible
-                        self.log.debug("✅ Strong match: %s returned 200", full_endpoint)
+                        self.log.debug("Strong match: %s returned 200", full_endpoint)
                     elif status == 401:
                         score += 8   # Good match - endpoint exists but needs auth
-                        self.log.debug("✅ Good match: %s returned 401 (needs auth)", full_endpoint)
+                        self.log.debug("Good match: %s returned 401 (needs auth)", full_endpoint)
                     elif status == 403:
                         score += 6   # Endpoint exists but forbidden
-                        self.log.debug("⚠️ Medium match: %s returned 403", full_endpoint)
+                        self.log.debug("Medium match: %s returned 403", full_endpoint)
                     elif status >= 200 and status < 500:
                         score += 4   # Any other valid HTTP response
-                        self.log.debug("ℹ️ Weak match: %s returned %s", full_endpoint, status)
+                        self.log.debug("Weak match: %s returned %s", full_endpoint, status)
                     
                     # Bonus for JSON responses with proper structure (like the curl example)
                     if response_text and "meta" in response_text and "data" in response_text:
                         score += 5
-                        self.log.debug("🎯 JSON structure bonus for %s", full_endpoint)
+                        self.log.debug("JSON structure bonus for %s", full_endpoint)
             
             self.log.debug("Pattern %s total score: %s, responses: %s", 
                           pattern["type"], score, pattern_responses)
@@ -189,9 +191,16 @@ class UnifiAPClient:
                 best_match = pattern
                 best_response = pattern_responses
 
+        # Cloud Gateway special case: On port 443, if UniFi OS endpoints work, prefer UniFi OS
+        # even if self-hosted endpoints also respond (cloud gateways respond to both)
+        cloud_gateway_detected = False
+        if self.port == 443 and best_match and best_match["type"] == "unifi_os" and best_score >= 5:
+            self.log.info("Port 443 detected with UniFi OS endpoints responding - prioritizing UniFi OS for Cloud Gateway compatibility")
+            cloud_gateway_detected = True
+
         # Special case: If we have any 200/401 responses but no clear winner, 
         # prefer UniFi OS pattern as it's most common for UDM users
-        if not best_match or best_score < 5:
+        if (not best_match or best_score < 5) and not cloud_gateway_detected:
             for pattern in test_patterns:
                 if pattern["type"] == "unifi_os":
                     # Test the primary UniFi OS endpoint directly
@@ -461,13 +470,22 @@ class UnifiAPClient:
                 return await self.login()
             return True
 
+    async def _invalidate_session(self):
+        """Invalidate session state when receiving 401/403 errors."""
+        self.log.warning("Invalidating session due to authentication error")
+        self.authenticated = False
+        self.session_cookie = None
+        self.csrf_token = None
+        if self.session:
+            self.session.cookie_jar.clear()
+
     async def get_sites(self) -> List[Dict]:
         """Get available sites from the controller."""
         try:
             if not await self._ensure_authenticated():
                 return []
-                
-            # Try multiple endpoints for site detection
+
+            # Try multiple endpoints for site detection with retry on auth errors
             endpoints = [
                 "api/self/sites",           # UniFi OS and v7+
                 "api/s/default/self/sites", # Alternative format
@@ -477,6 +495,13 @@ class UnifiAPClient:
             for endpoint in endpoints:
                 try:
                     resp, data = await self._perform_request("GET", endpoint)
+                    
+                    # Handle 401/403 by invalidating session and retrying once
+                    if resp.status in (401, 403):
+                        self.log.warning("Got %s when fetching sites, invalidating session and retrying...", resp.status)
+                        await self._invalidate_session()
+                        if await self._ensure_authenticated():
+                            resp, data = await self._perform_request("GET", endpoint)
                     
                     if resp.status == 200:
                         if isinstance(data, dict):
@@ -496,7 +521,7 @@ class UnifiAPClient:
                     self.log.debug("Endpoint %s failed: %s", endpoint, e)
                     continue
                     
-            self.log.warning("All site endpoints failed. Last attempt data: %s", data)
+            self.log.warning("All site endpoints failed.")
             return []
         except Exception as e:
             self.log.error("Error getting sites: %s", e)
@@ -510,9 +535,16 @@ class UnifiAPClient:
 
             endpoint = f"api/s/{site_id}/stat/device"
             self.log.debug("Fetching devices from endpoint: %s", endpoint)
-            
+
             resp, data = await self._perform_request("GET", endpoint, site_id=site_id)
-            
+
+            # Handle 401/403 by invalidating session and retrying once
+            if resp.status in (401, 403):
+                self.log.warning("Got %s when fetching devices, invalidating session and retrying...", resp.status)
+                await self._invalidate_session()
+                if await self._ensure_authenticated():
+                    resp, data = await self._perform_request("GET", endpoint, site_id=site_id)
+
             if resp.status == 200:
                 if isinstance(data, dict) and "data" in data:
                     devices = data["data"]
@@ -538,16 +570,23 @@ class UnifiAPClient:
         try:
             if not await self._ensure_authenticated():
                 return False
-                
+
             endpoint = f"api/s/{site_id}/cmd/devmgr"
             payload = {
                 "cmd": "set-locate",
                 "mac": mac.lower(),
                 "locate": True
             }
-            
+
             resp, data = await self._perform_request("POST", endpoint, payload, site_id=site_id)
-            
+
+            # Handle 401/403 by invalidating session and retrying once
+            if resp.status in (401, 403):
+                self.log.warning("Got %s when flashing LED, invalidating session and retrying...", resp.status)
+                await self._invalidate_session()
+                if await self._ensure_authenticated():
+                    resp, data = await self._perform_request("POST", endpoint, payload, site_id=site_id)
+
             if resp.status == 200:
                 return isinstance(data, dict) and data.get("meta", {}).get("rc") == "ok"
             return False
@@ -560,15 +599,22 @@ class UnifiAPClient:
         try:
             if not await self._ensure_authenticated():
                 return False
-                
+
             endpoint = f"api/s/{site_id}/cmd/devmgr"
             payload = {
                 "cmd": "unset-locate",
                 "mac": mac.lower()
             }
-            
+
             resp, data = await self._perform_request("POST", endpoint, payload, site_id=site_id)
-            
+
+            # Handle 401/403 by invalidating session and retrying once
+            if resp.status in (401, 403):
+                self.log.warning("Got %s when stopping LED flash, invalidating session and retrying...", resp.status)
+                await self._invalidate_session()
+                if await self._ensure_authenticated():
+                    resp, data = await self._perform_request("POST", endpoint, payload, site_id=site_id)
+
             if resp.status == 200:
                 return isinstance(data, dict) and data.get("meta", {}).get("rc") == "ok"
             return False
@@ -581,29 +627,36 @@ class UnifiAPClient:
         try:
             if not await self._ensure_authenticated():
                 return False
-                
+
             devices = await self.get_devices(site_id)
             device_id = None
-            
+
             for device in devices:
                 if device.get("mac", "").lower() == mac.lower():
                     device_id = device.get("_id")
                     break
-            
+
             if not device_id:
                 self.log.error("Device ID not found for MAC: %s", mac)
                 return False
-                
+
             endpoint = f"api/s/{site_id}/rest/device/{device_id}"
             payload = {"led_override": "on" if state else "off"}
-            
+
             resp, data = await self._perform_request("PUT", endpoint, payload, site_id=site_id)
-            
+
+            # Handle 401/403 by invalidating session and retrying once
+            if resp.status in (401, 403):
+                self.log.warning("Got %s when setting LED state, invalidating session and retrying...", resp.status)
+                await self._invalidate_session()
+                if await self._ensure_authenticated():
+                    resp, data = await self._perform_request("PUT", endpoint, payload, site_id=site_id)
+
             if resp.status == 200:
                 return isinstance(data, dict) and data.get("meta", {}).get("rc") == "ok"
-            
+
             return False
-            
+
         except Exception as e:
             self.log.error("Error setting LED state for %s: %s", mac, e)
             raise
