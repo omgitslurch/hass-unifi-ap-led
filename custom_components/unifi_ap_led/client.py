@@ -84,12 +84,14 @@ class UnifiAPClient:
                     if resp.status in (200, 401, 403):
                         # Check if response has UniFi-like JSON structure
                         is_unifi_json = False
-                        try:
-                            data = json.loads(response_text)
-                            if isinstance(data, dict) and "meta" in data:
-                                is_unifi_json = True
-                        except:
-                            pass
+                        if response_text and response_text.strip():
+                            if response_text.strip().startswith('{') and response_text.strip().endswith('}'):
+                                try:
+                                    data = json.loads(response_text)
+                                    if isinstance(data, dict) and "meta" in data:
+                                        is_unifi_json = True
+                                except (json.JSONDecodeError, UnicodeDecodeError):
+                                    pass
                         
                         if is_unifi_json:
                             self.log.debug("UniFi JSON structure detected at %s", url)
