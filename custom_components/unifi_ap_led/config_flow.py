@@ -112,12 +112,20 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                     await client.close_session()
                                 return await self.async_step_ssl_retry()
                                 
-                            last_error_str = str(client.last_error).lower()
-                            mfa_indicators = ["mfa required", "2fa required", "multi-factor", "two-factor", "two factor", "mfa enabled", "2fa enabled"]
-                            if any(keyword in last_error_str for keyword in ["401", "403", "invalid credentials"]):
-                                errors["base"] = ERRORS["invalid_auth"]
-                            elif any(indicator in last_error_str for indicator in mfa_indicators):
-                                errors["base"] = "mfa_required"
+                            last_error_str = str(client.last_error or "").lower()
+                            is_mfa_error = any(
+                                indicator in last_error_str
+                                for indicator in [
+                                    "mfa", "2fa", "multi-factor", "two-factor", "two factor",
+                                    "twofactorrequired", "two-factor authentication"
+                                ]
+                            )
+
+                            if any(keyword in last_error_str for keyword in ["401", "403", "invalid credentials", "unauthorized"]):
+                                if is_mfa_error:
+                                    errors["base"] = "mfa_required"
+                                else:
+                                    errors["base"] = ERRORS["invalid_auth"]
                             else:
                                 errors["base"] = ERRORS["cannot_connect"]
                             if client:
@@ -247,12 +255,20 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     _LOGGER.warning("Login failed on port %s with SSL disabled: %s", 
                                    self.controller_data[CONF_PORT], client.last_error)
                     
-                    last_error_str = str(client.last_error).lower()
-                    mfa_indicators = ["mfa required", "2fa required", "multi-factor", "two-factor", "two factor", "mfa enabled", "2fa enabled"]
-                    if any(keyword in last_error_str for keyword in ["401", "403", "invalid credentials"]):
-                        errors["base"] = ERRORS["invalid_auth"]
-                    elif any(indicator in last_error_str for indicator in mfa_indicators):
-                        errors["base"] = "mfa_required"
+                    last_error_str = str(client.last_error or "").lower()
+                    is_mfa_error = any(
+                        indicator in last_error_str
+                        for indicator in [
+                            "mfa", "2fa", "multi-factor", "two-factor", "two factor",
+                            "twofactorrequired", "two-factor authentication"
+                        ]
+                    )
+
+                    if any(keyword in last_error_str for keyword in ["401", "403", "invalid credentials", "unauthorized"]):
+                        if is_mfa_error:
+                            errors["base"] = "mfa_required"
+                        else:
+                            errors["base"] = ERRORS["invalid_auth"]
                     else:
                         errors["base"] = ERRORS["cannot_connect"]
                     
@@ -481,7 +497,7 @@ class UnifiApLedOptionsFlowHandler(config_entries.OptionsFlow):
     """Handles options flow for adding more APs"""
     
     def __init__(self, config_entry):
-        self.config_entry = config_entry
+        super().__init__()
         self.ap_devices = []
         self.client = None
 
