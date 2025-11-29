@@ -29,46 +29,48 @@ class UnifiAPClient:
         self.last_error = None
         self.successful_login_endpoint = None
         self.request_lock = asyncio.Lock()
+        self._session_creation_lock = asyncio.Lock()  # Add dedicated lock for session creation
 
     async def create_ssl_context(self):
         """Create SSL context with better stability."""
-        # Only recreate if necessary
-        if self.session and not self.session.closed:
-            return
+        async with self._session_creation_lock:
+            # Only recreate if necessary
+            if self.session and not self.session.closed:
+                return
 
-        def _make_context():
-            context = ssl.create_default_context()
-            if not self.verify_ssl:
-                context.check_hostname = False
-                context.verify_mode = ssl.CERT_NONE
-                self.log.debug("SSL verification disabled")
-            else:
-                # Use more compatible SSL settings
-                context.options |= ssl.OP_NO_SSLv2
-                context.options |= ssl.OP_NO_SSLv3
-                context.set_ciphers('DEFAULT@SECLEVEL=1')
-                self.log.debug("SSL verification enabled")
-            return context
+            def _make_context():
+                context = ssl.create_default_context()
+                if not self.verify_ssl:
+                    context.check_hostname = False
+                    context.verify_mode = ssl.CERT_NONE
+                    self.log.debug("SSL verification disabled")
+                else:
+                    # Use more compatible SSL settings
+                    context.options |= ssl.OP_NO_SSLv2
+                    context.options |= ssl.OP_NO_SSLv3
+                    context.set_ciphers('DEFAULT@SECLEVEL=1')
+                    self.log.debug("SSL verification enabled")
+                return context
 
-        try:
-            loop = asyncio.get_running_loop()
-            self.ssl_context = await loop.run_in_executor(None, _make_context)
-            
-            connector = aiohttp.TCPConnector(
-                ssl=self.ssl_context,
-                force_close=False,  # Keep connections alive
-                limit=20,
-                limit_per_host=10,
-            )
-            
-            self.session = aiohttp.ClientSession(connector=connector)
-            self.log.debug("SSL context and session created")
-            
-        except Exception as e:
-            self.log.error("Failed to create SSL context: %s", e)
-            self.session = None
-            self.ssl_context = None
-            raise
+            try:
+                loop = asyncio.get_running_loop()
+                self.ssl_context = await loop.run_in_executor(None, _make_context)
+                
+                connector = aiohttp.TCPConnector(
+                    ssl=self.ssl_context,
+                    force_close=False,  # Keep connections alive
+                    limit=20,
+                    limit_per_host=10,
+                )
+                
+                self.session = aiohttp.ClientSession(connector=connector)
+                self.log.debug("SSL context and session created")
+                
+            except Exception as e:
+                self.log.error("Failed to create SSL context: %s", e)
+                self.session = None
+                self.ssl_context = None
+                raise
 
     async def _test_endpoint(self, url: str) -> Tuple[bool, int, Optional[str]]:
         """Test a specific endpoint and return (success, status_code, response_text)."""
@@ -396,8 +398,10 @@ class UnifiAPClient:
                             response_data = data if isinstance(data, dict) else {}
                             error_msg = response_data.get("meta", {}).get("msg", "") or response_data.get("error", "") or str(data)
                             self.last_error = f"Invalid credentials on endpoint {login_endpoint} (status 401): {error_msg or 'No additional details'}"
-                            if any(indicator in error_msg.lower() for indicator in ["mfa", "2fa", "multi-factor", "two-factor", "two factor", "loginrequired"]):
+                            if any(indicator in error_msg.lower() for indicator in ["mfa", "2fa", "multi-factor", "two-factor", "two factor", "mfa_enabled", "two_factor_auth_enabled"]):
                                 self.log.warning("MFA is enabled or login required on the UniFi account, which may prevent API login: %s", error_msg)
+                                # Don't continue trying other payloads if MFA is detected
+                                break
                             self.log.warning(self.last_error)
                             continue  # Try next payload or endpoint
                             
@@ -477,8 +481,36 @@ class UnifiAPClient:
         self.authenticated = False
         self.session_cookie = None
         self.csrf_token = None
+        self.successful_login_endpoint = None  # Clear this too
         if self.session:
             self.session.cookie_jar.clear()
+
+    async def _handle_auth_error(self, method: str, endpoint: str, site_id: str = None, data: dict = None, max_retries: int = 1):
+        """Handle authentication errors with retry logic."""
+        for attempt in range(max_retries + 1):
+            try:
+                resp, result = await self._perform_request(method, endpoint, data, site_id)
+                
+                if resp.status not in (401, 403) or attempt == max_retries:
+                    return resp, result
+                    
+                self.log.warning("Got %s on attempt %s, invalidating session and retrying...", 
+                               resp.status, attempt + 1)
+                await self._invalidate_session()
+                
+                if not await self._ensure_authenticated():
+                    self.log.error("Re-authentication failed after auth error")
+                    return resp, result
+                    
+            except Exception as e:
+                if attempt == max_retries:
+                    raise
+                self.log.warning("Request failed on attempt %s: %s", attempt + 1, e)
+                await self._invalidate_session()
+                if not await self._ensure_authenticated():
+                    raise
+                    
+        return resp, result  # Should never reach here
 
     async def get_sites(self) -> List[Dict]:
         """Get available sites from the controller."""
@@ -495,14 +527,7 @@ class UnifiAPClient:
             
             for endpoint in endpoints:
                 try:
-                    resp, data = await self._perform_request("GET", endpoint)
-                    
-                    # Handle 401/403 by invalidating session and retrying once
-                    if resp.status in (401, 403):
-                        self.log.warning("Got %s when fetching sites, invalidating session and retrying...", resp.status)
-                        await self._invalidate_session()
-                        if await self._ensure_authenticated():
-                            resp, data = await self._perform_request("GET", endpoint)
+                    resp, data = await self._handle_auth_error("GET", endpoint)
                     
                     if resp.status == 200:
                         if isinstance(data, dict):
@@ -537,14 +562,7 @@ class UnifiAPClient:
             endpoint = f"api/s/{site_id}/stat/device"
             self.log.debug("Fetching devices from endpoint: %s", endpoint)
 
-            resp, data = await self._perform_request("GET", endpoint, site_id=site_id)
-
-            # Handle 401/403 by invalidating session and retrying once
-            if resp.status in (401, 403):
-                self.log.warning("Got %s when fetching devices, invalidating session and retrying...", resp.status)
-                await self._invalidate_session()
-                if await self._ensure_authenticated():
-                    resp, data = await self._perform_request("GET", endpoint, site_id=site_id)
+            resp, data = await self._handle_auth_error("GET", endpoint, site_id=site_id)
 
             if resp.status == 200:
                 if isinstance(data, dict) and "data" in data:
@@ -579,14 +597,7 @@ class UnifiAPClient:
                 "locate": True
             }
 
-            resp, data = await self._perform_request("POST", endpoint, payload, site_id=site_id)
-
-            # Handle 401/403 by invalidating session and retrying once
-            if resp.status in (401, 403):
-                self.log.warning("Got %s when flashing LED, invalidating session and retrying...", resp.status)
-                await self._invalidate_session()
-                if await self._ensure_authenticated():
-                    resp, data = await self._perform_request("POST", endpoint, payload, site_id=site_id)
+            resp, data = await self._handle_auth_error("POST", endpoint, site_id=site_id, data=payload)
 
             if resp.status == 200:
                 return isinstance(data, dict) and data.get("meta", {}).get("rc") == "ok"
@@ -607,14 +618,7 @@ class UnifiAPClient:
                 "mac": mac.lower()
             }
 
-            resp, data = await self._perform_request("POST", endpoint, payload, site_id=site_id)
-
-            # Handle 401/403 by invalidating session and retrying once
-            if resp.status in (401, 403):
-                self.log.warning("Got %s when stopping LED flash, invalidating session and retrying...", resp.status)
-                await self._invalidate_session()
-                if await self._ensure_authenticated():
-                    resp, data = await self._perform_request("POST", endpoint, payload, site_id=site_id)
+            resp, data = await self._handle_auth_error("POST", endpoint, site_id=site_id, data=payload)
 
             if resp.status == 200:
                 return isinstance(data, dict) and data.get("meta", {}).get("rc") == "ok"
@@ -644,14 +648,7 @@ class UnifiAPClient:
             endpoint = f"api/s/{site_id}/rest/device/{device_id}"
             payload = {"led_override": "on" if state else "off"}
 
-            resp, data = await self._perform_request("PUT", endpoint, payload, site_id=site_id)
-
-            # Handle 401/403 by invalidating session and retrying once
-            if resp.status in (401, 403):
-                self.log.warning("Got %s when setting LED state, invalidating session and retrying...", resp.status)
-                await self._invalidate_session()
-                if await self._ensure_authenticated():
-                    resp, data = await self._perform_request("PUT", endpoint, payload, site_id=site_id)
+            resp, data = await self._handle_auth_error("PUT", endpoint, site_id=site_id, data=payload)
 
             if resp.status == 200:
                 return isinstance(data, dict) and data.get("meta", {}).get("rc") == "ok"
