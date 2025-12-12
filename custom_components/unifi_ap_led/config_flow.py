@@ -34,18 +34,17 @@ class UnifiApLedConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         """Initial controller setup step."""
-        # NEW: Check HA version and abort if 2025.12+
-        ha_version = self.hass.helpers.util.dt_util.utcnow().year  # Rough check, or use haversion
-        # Better: Parse full version
-        ha_full_version = haversion.get_version(self.hass)
-        if haversion.compare_version(ha_full_version, "2025.12.0") >= 0:
-            return self.async_abort(
-                reason="obsolete_in_2025_12",  # Custom reason
-                description_placeholders={
-                    "official_integration": "https://www.home-assistant.io/integrations/unifi/",
-                    "feature_docs": "The AP LED control (on/off, flashing, brightness/color) is now built into the official UniFi Network integration."
-                }
-            )
+# NEW: Block new setups on Home Assistant 2025.12+
+        try:
+            from homeassistant.const import __version__ as ha_version_str
+            from packaging.version import Version
+
+            ha_version = Version(ha_version_str)
+            if ha_version >= Version("2025.12.0"):
+                return self.async_abort(reason="obsolete_in_2025_12")
+        except Exception as err:
+            _LOGGER.debug("Could not check HA version for deprecation: %s", err)
+
         errors = {}
         client = None
 
