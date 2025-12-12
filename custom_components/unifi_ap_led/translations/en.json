@@ -65,7 +65,10 @@
     },
     "abort": {
       "no_aps": "No access points found on this controller",
-      "no_new_aps": "No additional access points available"
+      "no_new_aps": "No additional access points available",
+      "obsolete_in_2025_12": {
+        "title": "Integration Obsolete in Home Assistant 2025.12+",
+        "description": "AP LED control is now built into the official UniFi Network integration.\n\nPlease remove this custom integration and set up the official **UniFi Network** integration instead.\n\nIt provides the same (and more advanced) LED control via Light entities for your access points."
     },
     "progress": {
       "creating_entries": "Creating configuration entries"

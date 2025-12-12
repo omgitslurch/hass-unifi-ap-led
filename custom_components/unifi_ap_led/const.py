@@ -23,6 +23,7 @@ ERRORS = {
     "rate_limit": "rate_limit",
     "mfa_required": "mfa_required",
     "invalid_host": "invalid_host",
+    "obsolete_in_2025_12": "obsolete_in_2025_12",
     "ssl_error": "ssl_error"
 }
 

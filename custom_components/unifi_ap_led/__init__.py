@@ -189,6 +189,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+        # NEW: Deprecation warning for Home Assistant 2025.12+
+        try:
+            from homeassistant.helpers.system_info import async_get_system_info
+            system_info = await async_get_system_info(hass)
+            ha_version = system_info.get("version", "0.0.0")
+        except Exception:
+            ha_version = "0.0.0"
+
+        # Fallback if async_get_system_info fails
+        if ha_version == "0.0.0":
+            try:
+                from homeassistant.const import __version__ as ha_version_str
+                ha_version = ha_version_str
+            except Exception:
+                ha_version = "0.0.0"
+
+        if ha_version >= "2025.12.0":
+            from homeassistant.components.persistent_notification import async_create, DOMAIN as PN_DOMAIN
+
+            message = (
+                "### ⚠️ UniFi AP LED Control is now obsolete ⚠️\n\n"
+                "AP LED control (on/off, flashing, brightness/color) is now **built into the official UniFi Network integration**.\n\n"
+                "**What you should do:**\n"
+                "1. Go to **Settings → Devices & Services → Add Integration** and add **UniFi Network** (same host, port, credentials).\n"
+                "2. Your access points will appear with new **Light** entities for full LED control.\n"
+                "3. Update any automations to use the new light entities.\n"
+                "4. Once migrated, remove this custom integration.\n\n"
+                "This integration will continue to work for now, but it's recommended to switch to the official one.\n\n"
+                "[Official UniFi Integration Docs](https://www.home-assistant.io/integrations/unifi/)"
+            )
+
+            async_create(
+                hass,
+                message,
+                title="UniFi AP LED: Migrate to Official Integration",
+                notification_id="unifi_ap_led_deprecated_2025_12"
+            )
+
         _LOGGER.info("Setup completed for %s (site: %s)", data[CONF_HOST], site_name_display)
         return True
 
@@ -228,4 +266,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
                 if isinstance(result, Exception):
                     _LOGGER.warning("Error removing device: %s", result)
 
+        # Dismiss deprecation notification when unloading
+        try:
+            from homeassistant.components.persistent_notification import async_dismiss
+            async_dismiss(hass, "unifi_ap_led_deprecated_2025_12")
+        except Exception:
+            pass  # Silent if component not loaded
+            
     return unload_ok

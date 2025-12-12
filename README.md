@@ -9,6 +9,28 @@ This integration allows Home Assistant to control the **status LEDs** on UniFi A
 - ✴️ Flashing the LED for 2 minutes via a `button entity` 
 - ⚙️ Fully configurable via the Home Assistant UI
 
+# ⚠️ IMPORTANT: Obsolete in Home Assistant 2025.12+
+
+As of Home Assistant 2025.12, AP LED control (on/off, flashing, brightness/color) is built into the official UniFi Network integration bundled with Home Assistant.
+
+## For New Users (HA 2025.12+)
+- Do NOT install this custom integration.
+- Use the official UniFi Network setup instead.
+
+## For Existing Users (Upgrading to 2025.12+)
+- Your current setup will continue working.
+- You'll see a notification in HA recommending migration.
+- Once migrated, uninstall this integration via HACS.
+
+## Migration Guide
+1. Add the official UniFi Network integration (same host/port/username/password).
+2. Your APs will appear with new `light.*` entities for LED control.
+3. Update automations: Replace switches/buttons with the new lights.
+4. Test flashing: Use the light's "effect" or service calls.
+5. Remove this custom integration.
+
+Legacy support (HA <2025.12) remains unchanged.
+
 ---
 
 ## Requirements
