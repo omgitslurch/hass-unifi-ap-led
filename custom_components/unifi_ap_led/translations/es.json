@@ -66,10 +66,7 @@
     "abort": {
       "no_aps": "No se encontraron puntos de acceso en este controlador",
       "no_new_aps": "No hay puntos de acceso adicionales disponibles",
-      "obsolete_in_2025_12": {
-        "title": "Integración obsoleta a partir de Home Assistant 2025.12+",
-        "description": "El control de los LEDs de los puntos de acceso ahora está integrado en la integración oficial UniFi Network.\n\nPor favor, elimina esta integración personalizada y configura en su lugar la integración oficial **UniFi Network**.\n\nEsta ofrece el mismo (y más avanzado) control de LEDs mediante entidades Light para tus puntos de acceso."
-      }
+      "obsolete_in_2025_12": "Integración obsoleta a partir de Home Assistant 2025.12+\n\nEl control de los LED de los puntos de acceso ahora está integrado en la integración oficial UniFi Network.\n\nPor favor, elimina esta integración personalizada y configura en su lugar la integración oficial **UniFi Network**.\n\nEsta ofrece el mismo (y más avanzado) control de LED mediante entidades Light para tus puntos de acceso."
     },
     "progress": {
       "creating_entries": "Creando entradas de configuración"

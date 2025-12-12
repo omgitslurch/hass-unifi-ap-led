@@ -66,10 +66,7 @@
     "abort": {
       "no_aps": "Keine Access Points auf diesem Controller gefunden",
       "no_new_aps": "Keine zusätzlichen Access Points verfügbar",
-      "obsolete_in_2025_12": {
-        "title": "Integration veraltet ab Home Assistant 2025.12+",
-        "description": "Die Steuerung der AP-LEDs ist jetzt in die offizielle UniFi Network Integration integriert.\n\nBitte entfernen Sie diese benutzerdefinierte Integration und richten Sie stattdessen die offizielle **UniFi Network** Integration ein.\n\nDiese bietet die gleiche (und erweiterte) LED-Steuerung über Light-Entities für Ihre Access Points."
-      }
+      "obsolete_in_2025_12": "Integration veraltet ab Home Assistant 2025.12+\n\nDie Steuerung der AP-LEDs ist jetzt in die offizielle UniFi Network Integration integriert.\n\nBitte entfernen Sie diese benutzerdefinierte Integration und richten Sie stattdessen die offizielle **UniFi Network** Integration ein.\n\nDiese bietet die gleiche (und erweiterte) LED-Steuerung über Light-Entities für Ihre Access Points."
     },
     "progress": {
       "creating_entries": "Erstellen von Konfigurationseinträgen"
